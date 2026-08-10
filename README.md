@@ -1,19 +1,17 @@
 # GenRAG
 
-**General document learning assistant** — upload documents, ask questions with RAG, study with memory, Learning Mode, and Interview Mode.
+**General document learning assistant** — upload PDFs, ask questions with RAG, study with memory, Learning Mode, and Interview Mode.
 
-Built incrementally as a learning project to understand AI assistant infrastructure: conversation history, prompts, files, memory, embeddings, retrieval, and generation.
+## Features (complete)
 
-## Current status: Phase 1
-
-Basic chatbot with:
-
-- FastAPI backend
-- OpenAI chat completions
-- Conversation history in SQLite (last 10 turns sent to the LLM)
-- Simple web UI (GenRAG theme)
-
-Coming next: PDF upload (Phase 2), chunking, embeddings, vector storage, retrieval, citations, memory, modes.
+- PDF upload and text extraction
+- Chunking with overlap (inspectable via API)
+- Gemini embeddings + cosine similarity retrieval
+- JSON vector store (educational — production uses vector DBs)
+- Source citations (page numbers)
+- User memory (rule-based extract + keyword retrieval)
+- Modes: **Chat**, **Learning**, **Interview**
+- Debug panel showing retrieved chunks and scores
 
 ## Quick start
 
@@ -26,23 +24,19 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Copy `.env.example` to `.env` in the project root and set your OpenAI API key:
+Create `.env` in project root:
 
+```env
+GEMINI_API_KEY=AIza-your-key-here
+GEMINI_MODEL=gemini-3.5-flash
+GEMINI_EMBED_MODEL=text-embedding-004
 ```
-OPENAI_API_KEY=sk-your-key-here
-```
-
-Run the API:
 
 ```powershell
 uvicorn main:app --reload
 ```
 
-API docs: http://localhost:8000/docs
-
 ### 2. Frontend
-
-In a second terminal:
 
 ```powershell
 cd frontend
@@ -51,37 +45,45 @@ python -m http.server 5500
 
 Open http://localhost:5500
 
-### 3. Test
+### 3. Try it
 
-1. Send: `Say hello in exactly five words.`
-2. Send: `My name is Ahmad.` then `What's my name?` — confirms history works.
-3. Click **Reset conversation**, ask your name again — should not remember.
+1. Upload your study PDF (e.g. AI Assistant Infrastructure)
+2. Click the document in the sidebar to select it
+3. Ask: "How does conversation history work?"
+4. Switch to **Learning** or **Interview** mode
+5. Say: "Remember that my interview is on Friday"
+6. Check the **Debug** panel for retrieved chunks and scores
+
+## API overview
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /documents/upload` | Upload PDF → chunk → embed → store |
+| `GET /documents` | List uploaded documents |
+| `GET /documents/{id}/chunks` | Inspect chunks |
+| `POST /chat` | RAG chat (mode: chat, learning, interview) |
+| `GET /memories` | List user memories |
+| `GET /debug/last` | Last retrieval pipeline snapshot |
 
 ## Project structure
 
 ```
-genrag/
-├── backend/
-│   ├── main.py       # FastAPI routes
-│   ├── llm.py        # OpenAI client
-│   ├── database.py   # SQLite (history + memory placeholder)
-│   └── requirements.txt
-├── frontend/
-│   ├── index.html
-│   └── style.css
-├── design.md         # GenRAG UI design tokens
-├── .env.example
-└── README.md
+backend/
+  main.py          # API routes
+  ingestion.py     # PDF → text
+  chunking.py      # text → chunks
+  embeddings.py    # text → vectors (Gemini)
+  vector_store.py  # store + cosine search
+  memory.py        # user memory extract/retrieve
+  rag.py           # prompt construction + modes
+  llm.py           # Gemini chat
+  database.py      # SQLite
+frontend/
+  index.html       # UI
+  style.css
+data/              # genrag.db, uploads, vectors (local, gitignored)
 ```
-
-## Design
-
-See [design.md](design.md) for colors, typography, and layout guidelines.
 
 ## Author
 
 [Ahmad Tayyab](https://github.com/ahmedtayyab)
-
-## License
-
-MIT

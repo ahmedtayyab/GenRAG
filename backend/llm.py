@@ -1,4 +1,4 @@
-"""LLM client — Phase 1: basic chat completions."""
+# LLM client — Gemini chat (OpenAI-compatible API)
 
 import os
 
@@ -6,43 +6,43 @@ from openai import OpenAI
 
 _client: OpenAI | None = None
 
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+
 
 def get_client() -> OpenAI:
     global _client
     if _client is None:
-        api_key = os.getenv("OPENAI_API_KEY")
+        api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             raise ValueError(
-                "OPENAI_API_KEY is not set. Copy .env.example to .env and add your key."
+                "GEMINI_API_KEY is not set. Get a free key at https://aistudio.google.com/apikey"
             )
-        _client = OpenAI(api_key=api_key)
+        base_url = os.getenv("GEMINI_BASE_URL", GEMINI_BASE_URL)
+        _client = OpenAI(api_key=api_key, base_url=base_url)
     return _client
 
 
-def ask_llm(user_message: str, history: list[dict] | None = None) -> str:
-    """
-    Send messages to the LLM and return the assistant reply.
+def get_model() -> str:
+    return os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
-    The API is stateless — history must be passed in every request by the caller.
-    """
-    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    messages: list[dict] = [
-        {
-            "role": "system",
-            "content": (
-                "You are GenRAG, a helpful document learning assistant. "
-                "Be clear and concise. Phase 1: general chat only — "
-                "document Q&A arrives in later phases."
-            ),
-        }
-    ]
+
+def ask_llm(user_message: str, history: list[dict] | None = None) -> str:
+    system = (
+        "You are GenRAG, a helpful document learning assistant. "
+        "Be clear and concise."
+    )
+    return ask_llm_with_system(system, history or [], user_message)
+
+
+def ask_llm_with_system(system_prompt: str, history: list[dict], user_message: str) -> str:
+    messages: list[dict] = [{"role": "system", "content": system_prompt}]  # dynamic system prompt from RAG pipeline
     if history:
         messages.extend(history)
     messages.append({"role": "user", "content": user_message})
 
     client = get_client()
     response = client.chat.completions.create(
-        model=model,
+        model=get_model(),
         messages=messages,
         temperature=0.7,
     )
