@@ -6,8 +6,8 @@
 
 - PDF upload and text extraction
 - Chunking with overlap (inspectable via API)
-- Gemini embeddings + cosine similarity retrieval
-- JSON vector store (educational — production uses vector DBs)
+- Gemini embeddings + Chroma vector search (cosine similarity)
+- ChromaDB for persistent local vector storage
 - Source citations (page numbers)
 - User memory (rule-based extract + keyword retrieval)
 - Modes: **Chat**, **Learning**, **Interview**
@@ -73,7 +73,7 @@ backend/
   ingestion.py     # PDF → text
   chunking.py      # text → chunks
   embeddings.py    # text → vectors (Gemini)
-  vector_store.py  # store + cosine search
+  vector_store.py  # Chroma store + similarity search
   memory.py        # user memory extract/retrieve
   rag.py           # prompt construction + modes
   llm.py           # Gemini chat
@@ -81,7 +81,7 @@ backend/
 frontend/
   index.html       # UI
   style.css
-data/              # genrag.db, uploads, vectors (local, gitignored)
+data/              # genrag.db, uploads, chroma (local, gitignored)
 ```
 
 ## Author

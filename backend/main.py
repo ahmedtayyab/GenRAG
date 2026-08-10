@@ -137,7 +137,7 @@ def get_document_chunks(document_id: str):
 def remove_document(document_id: str):
     if not get_document(document_id):
         raise HTTPException(status_code=404, detail="Document not found.")
-    delete_document_files(document_id)  # remove vector JSON + uploaded PDF copy
+    delete_document_files(document_id)  # remove Chroma collection + uploaded PDF copy
     delete_document(document_id)  # remove DB row
     return {"status": "ok", "document_id": document_id}
 

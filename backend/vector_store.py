@@ -1,10 +1,8 @@
-# Store embeddings + search by cosine similarity (Phases 5 & 6)
+# Store embeddings + search via Chroma (Phases 5 & 6)
 
-import json
-import math
-from dataclasses import asdict, dataclass
+import chromadb
+from dataclasses import dataclass
 from pathlib import Path
-
 
 @dataclass
 class StoredChunk:
@@ -22,61 +20,118 @@ class SearchResult:
     score: float  # cosine similarity 0-1, higher = more relevant
 
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "vectors"
+CHROMA_DIR = Path(__file__).resolve().parent.parent / "data" / "chroma"
+
+_client: chromadb.ClientAPI | None = None
+
+
+def _get_client() -> chromadb.ClientAPI:
+    global _client
+    if _client is None:
+        CHROMA_DIR.mkdir(parents=True, exist_ok=True)
+        _client = chromadb.PersistentClient(path=str(CHROMA_DIR))
+    return _client
+
+
+def _collection_name(document_id: str) -> str:
+    # Chroma names: 3–63 chars, alphanumeric + underscores/hyphens
+    return f"doc_{document_id.replace('-', '_')}"
 
 
 def save_document_vectors(document_id: str, filename: str, chunks: list[StoredChunk]) -> Path:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    path = DATA_DIR / f"{document_id}.json"
-    payload = {
-        "document_id": document_id,
-        "filename": filename,
-        "chunks": [asdict(c) for c in chunks],
-    }
-    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")  # educational store — production uses vector DB
-    return path
+    client = _get_client()
+    name = _collection_name(document_id)
+
+    try:
+        client.delete_collection(name)
+    except Exception:
+        pass
+
+    collection = client.create_collection(
+        name=name,
+        metadata={"hnsw:space": "cosine", "document_id": document_id, "filename": filename},
+    )
+
+    collection.add(
+        ids=[f"{document_id}_{c.index}" for c in chunks],
+        embeddings=[c.vector for c in chunks],
+        documents=[c.text for c in chunks],
+        metadatas=[{"index": c.index, "page": c.page, "filename": filename} for c in chunks],
+    )
+    return CHROMA_DIR
 
 
 def load_document_vectors(document_id: str) -> dict | None:
-    path = DATA_DIR / f"{document_id}.json"
-    if not path.exists():
+    client = _get_client()
+    name = _collection_name(document_id)
+    try:
+        collection = client.get_collection(name)
+    except Exception:
         return None
-    return json.loads(path.read_text(encoding="utf-8"))
+
+    result = collection.get(include=["documents", "metadatas"])
+    if not result["ids"]:
+        return None
+
+    chunks = []
+    for i in range(len(result["ids"])):
+        meta = result["metadatas"][i]
+        chunks.append(
+            {
+                "index": meta["index"],
+                "text": result["documents"][i],
+                "page": meta["page"],
+            }
+        )
+
+    meta = collection.metadata or {}
+    return {
+        "document_id": document_id,
+        "filename": meta.get("filename", ""),
+        "chunks": chunks,
+    }
 
 
 def delete_document_vectors(document_id: str) -> bool:
-    path = DATA_DIR / f"{document_id}.json"
-    if path.exists():
-        path.unlink()
+    client = _get_client()
+    name = _collection_name(document_id)
+    try:
+        client.delete_collection(name)
         return True
-    return False
+    except Exception:
+        return False
 
 
 def search(document_id: str, query_vector: list[float], top_k: int = 3) -> list[SearchResult]:
-    doc = load_document_vectors(document_id)
-    if not doc:
+    client = _get_client()
+    name = _collection_name(document_id)
+    try:
+        collection = client.get_collection(name)
+    except Exception:
+        return []
+
+    results = collection.query(
+        query_embeddings=[query_vector],
+        n_results=top_k,
+        include=["documents", "metadatas", "distances"],
+    )
+
+    if not results["ids"] or not results["ids"][0]:
         return []
 
     scored: list[SearchResult] = []
-    for chunk in doc["chunks"]:
-        score = cosine_similarity(query_vector, chunk["vector"])  # compare question vector to each chunk vector
+    for i in range(len(results["ids"][0])):
+        meta = results["metadatas"][0][i]
+        distance = results["distances"][0][i]
+        # cosine distance ≈ 1 - cosine_similarity for normalized vectors
+        score = max(0.0, 1.0 - distance) if distance is not None else 0.0
         scored.append(
             SearchResult(
-                index=chunk["index"],
-                text=chunk["text"],
-                page=chunk["page"],
+                index=meta["index"],
+                text=results["documents"][0][i],
+                page=meta["page"],
                 score=round(score, 4),
             )
         )
 
-    scored.sort(key=lambda r: r.score, reverse=True)  # highest similarity first
-    return scored[:top_k]  # return top-k most relevant chunks
-
-
-def cosine_similarity(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))  # dot product measures alignment of vectors
-    norm_a = math.sqrt(sum(x * x for x in a))  # length of vector a
-    norm_b = math.sqrt(sum(x * x for x in b))  # length of vector b
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
-    return dot / (norm_a * norm_b)  # 1.0 = identical direction, 0 = unrelated
+    return scored
