@@ -10,13 +10,10 @@ from pydantic import BaseModel, Field
 
 from chunking import chunk_pages
 from database import (
-    UPLOADS_DIR,
     add_message,
     clear_conversation,
     delete_document,
-    delete_document_files,
     get_document,
-    get_document_chunks_from_store,
     get_recent_history,
     init_db,
     list_documents,
@@ -24,10 +21,10 @@ from database import (
 )
 from debug_state import get_debug
 from embeddings import embed_texts
-from ingestion import extract_pdf_text, save_upload_copy
+from ingestion import extract_pdf_text
 from memory import list_memories, remove_memory
 from rag import build_rag_response
-from vector_store import StoredChunk, save_document_vectors
+from vector_store import StoredChunk, delete_document_vectors, save_document_vectors
 
 load_dotenv()
 
@@ -93,7 +90,6 @@ async def upload_document(file: UploadFile = File(...)):
             for i, c in enumerate(chunks)
         ]
         save_document_vectors(document_id, file.filename, stored)
-        save_upload_copy(document_id, file.filename, file_bytes, UPLOADS_DIR)
         preview = "\n\n".join(p.text[:200] for p in pages[:3])
         save_document(document_id, file.filename, len(pages), len(chunks), preview)
 
@@ -117,28 +113,12 @@ def get_documents():
     return {"documents": list_documents()}
 
 
-@app.get("/documents/{document_id}")
-def get_document_detail(document_id: str):
-    doc = get_document(document_id)
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found.")
-    return doc
-
-
-@app.get("/documents/{document_id}/chunks")
-def get_document_chunks(document_id: str):
-    doc = get_document(document_id)
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found.")
-    return {"document_id": document_id, "chunks": get_document_chunks_from_store(document_id)}
-
-
 @app.delete("/documents/{document_id}")
 def remove_document(document_id: str):
     if not get_document(document_id):
         raise HTTPException(status_code=404, detail="Document not found.")
-    delete_document_files(document_id)  # remove Chroma collection + uploaded PDF copy
-    delete_document(document_id)  # remove DB row
+    delete_document_vectors(document_id)
+    delete_document(document_id)
     return {"status": "ok", "document_id": document_id}
 
 
@@ -197,8 +177,3 @@ def chat(request: ChatRequest):
 def reset_chat(conversation_id: str):
     clear_conversation(conversation_id)
     return {"status": "ok", "conversation_id": conversation_id}
-
-
-@app.get("/chat/history/{conversation_id}")
-def get_history(conversation_id: str):
-    return {"conversation_id": conversation_id, "messages": get_recent_history(conversation_id, limit=100)}

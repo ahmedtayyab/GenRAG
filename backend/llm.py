@@ -26,14 +26,6 @@ def get_model() -> str:
     return os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
 
-def ask_llm(user_message: str, history: list[dict] | None = None) -> str:
-    system = (
-        "You are GenRAG, a helpful document learning assistant. "
-        "Be clear and concise."
-    )
-    return ask_llm_with_system(system, history or [], user_message)
-
-
 def ask_llm_with_system(system_prompt: str, history: list[dict], user_message: str) -> str:
     messages: list[dict] = [{"role": "system", "content": system_prompt}]  # dynamic system prompt from RAG pipeline
     if history:

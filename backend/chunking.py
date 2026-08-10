@@ -9,7 +9,6 @@ class Chunk:
     index: int  # chunk number within document (0, 1, 2...)
     text: str  # the actual text that gets embedded and retrieved
     page: int  # which page this chunk came from (for citations)
-    char_start: int  # position in full document text (debugging)
 
 
 CHUNK_SIZE = 1500  # larger chunks = fewer embedding API calls (free tier ~100/min)
@@ -50,7 +49,7 @@ def chunk_pages(pages: list, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_
         text = combined[start:end].strip()
         if text:
             page = _page_for_position(start, page_map)  # figure out which page this chunk belongs to
-            chunks.append(Chunk(index=index, text=text, page=page, char_start=start))
+            chunks.append(Chunk(index=index, text=text, page=page))
             index += 1
 
         if end >= len(combined):

@@ -1,11 +1,9 @@
 # SQLite — conversations, messages, memories, documents
 
-import json
 import sqlite3
 from pathlib import Path
 
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "genrag.db"
-UPLOADS_DIR = Path(__file__).resolve().parent.parent / "data" / "uploads"
 
 HISTORY_LIMIT = 10  # last N turns sent to LLM (truncation)
 
@@ -104,14 +102,6 @@ def get_all_memories() -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def get_memory_by_id(mem_id: str) -> dict | None:
-    with get_connection() as conn:
-        row = conn.execute(
-            "SELECT id, text, category, confidence FROM memories WHERE id = ?", (mem_id,)
-        ).fetchone()
-    return dict(row) if row else None
-
-
 def delete_memory(mem_id: str) -> bool:
     with get_connection() as conn:
         cur = conn.execute("DELETE FROM memories WHERE id = ?", (mem_id,))
@@ -150,21 +140,3 @@ def delete_document(doc_id: str) -> bool:
     with get_connection() as conn:
         cur = conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
         return cur.rowcount > 0
-
-
-def delete_document_files(doc_id: str) -> None:
-    from vector_store import delete_document_vectors
-
-    delete_document_vectors(doc_id)
-    if UPLOADS_DIR.exists():
-        for path in UPLOADS_DIR.glob(f"{doc_id}_*"):
-            path.unlink(missing_ok=True)
-
-
-def get_document_chunks_from_store(document_id: str) -> list[dict]:
-    from vector_store import load_document_vectors  # avoid circular import at module load
-
-    doc = load_document_vectors(document_id)
-    if not doc:
-        return []
-    return [{"index": c["index"], "page": c["page"], "text": c["text"][:300]} for c in doc["chunks"]]

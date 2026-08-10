@@ -5,7 +5,7 @@
 ## Features (complete)
 
 - PDF upload and text extraction
-- Chunking with overlap (inspectable via API)
+- Chunking with overlap
 - Gemini embeddings + Chroma vector search (cosine similarity)
 - ChromaDB for persistent local vector storage
 - Source citations (page numbers)
@@ -60,9 +60,11 @@ Open http://localhost:5500
 |----------|---------|
 | `POST /documents/upload` | Upload PDF → chunk → embed → store |
 | `GET /documents` | List uploaded documents |
-| `GET /documents/{id}/chunks` | Inspect chunks |
+| `DELETE /documents/{id}` | Remove document and vectors |
 | `POST /chat` | RAG chat (mode: chat, learning, interview) |
+| `POST /chat/reset` | Clear conversation history |
 | `GET /memories` | List user memories |
+| `DELETE /memories/{id}` | Remove a memory |
 | `GET /debug/last` | Last retrieval pipeline snapshot |
 
 ## Project structure
@@ -81,7 +83,7 @@ backend/
 frontend/
   index.html       # UI
   style.css
-data/              # genrag.db, uploads, chroma (local, gitignored)
+data/              # genrag.db, chroma (local, gitignored)
 ```
 
 ## Author

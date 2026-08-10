@@ -56,40 +56,9 @@ def save_document_vectors(document_id: str, filename: str, chunks: list[StoredCh
         ids=[f"{document_id}_{c.index}" for c in chunks],
         embeddings=[c.vector for c in chunks],
         documents=[c.text for c in chunks],
-        metadatas=[{"index": c.index, "page": c.page, "filename": filename} for c in chunks],
+        metadatas=[{"index": c.index, "page": c.page} for c in chunks],
     )
     return CHROMA_DIR
-
-
-def load_document_vectors(document_id: str) -> dict | None:
-    client = _get_client()
-    name = _collection_name(document_id)
-    try:
-        collection = client.get_collection(name)
-    except Exception:
-        return None
-
-    result = collection.get(include=["documents", "metadatas"])
-    if not result["ids"]:
-        return None
-
-    chunks = []
-    for i in range(len(result["ids"])):
-        meta = result["metadatas"][i]
-        chunks.append(
-            {
-                "index": meta["index"],
-                "text": result["documents"][i],
-                "page": meta["page"],
-            }
-        )
-
-    meta = collection.metadata or {}
-    return {
-        "document_id": document_id,
-        "filename": meta.get("filename", ""),
-        "chunks": chunks,
-    }
 
 
 def delete_document_vectors(document_id: str) -> bool:
