@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GenRAG — Document Learning Assistant</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <h1>GenRAG</h1>
+        <p>General document learning assistant</p>
+        <span class="phase-badge">Phase 1 — Chat</span>
+      </div>
+
+      <section class="sidebar-section">
+        <h2>Documents</h2>
+        <p class="placeholder">No documents yet. Upload coming in Phase 2.</p>
+      </section>
+
+      <section class="sidebar-section">
+        <h2>Memory</h2>
+        <p class="placeholder">Memory store coming in Phase 9.</p>
+      </section>
+
+      <section class="sidebar-section">
+        <h2>Mode</h2>
+        <ul class="mode-list">
+          <li class="active">Chat</li>
+          <li>Learning</li>
+          <li>Interview</li>
+        </ul>
+      </section>
+
+      <section class="sidebar-section">
+        <h2>Debug</h2>
+        <p class="placeholder">Pipeline inspector coming in Phase 7.</p>
+      </section>
+
+      <button type="button" class="btn-link" id="reset-btn">Reset conversation</button>
+    </aside>
+
+    <main class="main">
+      <header class="chat-header">
+        <h2>Chat</h2>
+      </header>
+
+      <div id="messages" class="messages">
+        <div class="message system">
+          Welcome to GenRAG. Phase 1 is a basic LLM chat with conversation history stored in SQLite.
+          Ask anything to test the connection.
+        </div>
+      </div>
+
+      <form id="chat-form" class="input-area">
+        <input
+          id="user-input"
+          type="text"
+          placeholder="Ask GenRAG something…"
+          autocomplete="off"
+          required
+        />
+        <button type="submit" id="send-btn">Send</button>
+      </form>
+    </main>
+  </div>
+
+  <script>
+    const API_BASE = "http://localhost:8000";
+    const messagesEl = document.getElementById("messages");
+    const form = document.getElementById("chat-form");
+    const input = document.getElementById("user-input");
+    const sendBtn = document.getElementById("send-btn");
+    const resetBtn = document.getElementById("reset-btn");
+
+    let conversationId = localStorage.getItem("genrag_conversation_id");
+
+    function addMessage(role, text) {
+      const div = document.createElement("div");
+      div.className = `message ${role}`;
+      div.textContent = text;
+      messagesEl.appendChild(div);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const text = input.value.trim();
+      if (!text) return;
+
+      addMessage("user", text);
+      input.value = "";
+      sendBtn.disabled = true;
+
+      try {
+        const res = await fetch(`${API_BASE}/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: text,
+            conversation_id: conversationId,
+          }),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          addMessage("error", data.detail || "Request failed.");
+          return;
+        }
+
+        conversationId = data.conversation_id;
+        localStorage.setItem("genrag_conversation_id", conversationId);
+        addMessage("assistant", data.reply);
+      } catch {
+        addMessage("error", "Cannot reach GenRAG backend. Is it running on port 8000?");
+      } finally {
+        sendBtn.disabled = false;
+        input.focus();
+      }
+    });
+
+    resetBtn.addEventListener("click", async () => {
+      if (conversationId) {
+        await fetch(`${API_BASE}/chat/reset?conversation_id=${conversationId}`, {
+          method: "POST",
+        });
+      }
+      localStorage.removeItem("genrag_conversation_id");
+      conversationId = null;
+      messagesEl.innerHTML = "";
+      addMessage("system", "Conversation reset. History cleared from database.");
+    });
+  </script>
+</body>
+</html>
