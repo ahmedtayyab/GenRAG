@@ -1,6 +1,40 @@
 /* GenRAG — clean document learning workspace */
 
-:root {
+/* Dark mode (default) */
+:root,
+[data-theme="dark"] {
+  --bg: #0f1115;
+  --surface: #171a21;
+  --ink: #e8eaed;
+  --muted: #9aa3b2;
+  --faint: #6b7380;
+  --line: #2a2f3a;
+  --line-strong: #3a4150;
+  --accent: #3b82f6;
+  --accent-soft: #1a2740;
+  --accent-ink: #93c5fd;
+  --accent-border: #1e3a5f;
+  --error: #f87171;
+  --error-bg: #3f1d1d;
+  --warning: #fbbf24;
+  --warning-ink: #fde68a;
+  --code-bg: #0b0d12;
+  --code-ink: #e5e7eb;
+  --user-ink: #ffffff;
+  --backdrop: rgba(0, 0, 0, 0.55);
+  --shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  --panel-shadow: 0 0 24px rgba(0, 0, 0, 0.35);
+  --radius: 8px;
+  --radius-sm: 6px;
+  --sidebar-w: 280px;
+  --sources-w: 300px;
+  --font: "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  color-scheme: dark;
+}
+
+/* Light mode (original design) */
+[data-theme="light"] {
   --bg: #f6f7f9;
   --surface: #ffffff;
   --ink: #1a1d23;
@@ -11,14 +45,18 @@
   --accent: #2563eb;
   --accent-soft: #eff6ff;
   --accent-ink: #1d4ed8;
+  --accent-border: #bfdbfe;
   --error: #dc2626;
   --error-bg: #fef2f2;
-  --radius: 8px;
-  --radius-sm: 6px;
-  --sidebar-w: 280px;
-  --sources-w: 300px;
-  --font: "Segoe UI", system-ui, -apple-system, sans-serif;
-  --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  --warning: #fbbf24;
+  --warning-ink: #92400e;
+  --code-bg: #111827;
+  --code-ink: #e5e7eb;
+  --user-ink: #ffffff;
+  --backdrop: rgba(17, 24, 39, 0.28);
+  --shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
+  --panel-shadow: 0 0 24px rgba(0, 0, 0, 0.08);
+  color-scheme: light;
 }
 
 * {
@@ -251,7 +289,17 @@ input {
 
 .doc-item.selected {
   background: var(--accent-soft);
-  border-color: #bfdbfe;
+  border-color: var(--accent-border);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.doc-item.needs-reupload {
+  opacity: 0.75;
+  border-color: var(--warning);
+}
+
+.doc-item.needs-reupload .doc-name {
+  color: var(--warning-ink);
 }
 
 .doc-info {
@@ -394,7 +442,7 @@ input {
 }
 
 .mode-card.active {
-  border-color: #bfdbfe;
+  border-color: var(--accent-border);
   background: var(--accent-soft);
 }
 
@@ -405,6 +453,7 @@ input {
 .sidebar-footer {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 12px;
   padding: 12px 16px 16px;
   border-top: 1px solid var(--line);
@@ -413,6 +462,32 @@ input {
   background: var(--surface);
   position: sticky;
   bottom: 0;
+}
+
+.sidebar-footer-left {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+
+.theme-toggle {
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  border-radius: var(--radius-sm);
+  height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.theme-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  background: var(--accent-soft);
 }
 
 /* ── Center chat ── */
@@ -451,6 +526,22 @@ input {
   font-size: 12px;
   color: var(--muted);
   margin-top: 2px;
+}
+
+.doc-context-status {
+  font-size: 12px;
+  color: var(--faint);
+  margin-top: 4px;
+}
+
+.doc-context-status.active {
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+#selected-count.has-selection {
+  color: var(--accent-ink);
+  font-weight: 600;
 }
 
 .messages {
@@ -518,7 +609,7 @@ input {
 
 .message.user .message-body {
   background: var(--accent);
-  color: #fff;
+  color: var(--user-ink);
   padding: 10px 14px;
   border-radius: 14px 14px 4px 14px;
   font-size: 14px;
@@ -556,7 +647,7 @@ input {
 
 .message.error .message-body {
   border-style: solid;
-  border-color: #fecaca;
+  border-color: var(--error);
   color: var(--error);
   background: var(--error-bg);
 }
@@ -613,8 +704,8 @@ input {
 }
 
 .message.assistant .message-body pre {
-  background: #111827;
-  color: #e5e7eb;
+  background: var(--code-bg);
+  color: var(--code-ink);
   border-radius: var(--radius-sm);
   padding: 12px 14px;
   overflow-x: auto;
@@ -658,7 +749,7 @@ input {
   font-size: 12px;
   padding: 4px 8px 4px 10px;
   border-radius: 999px;
-  border: 1px solid #bfdbfe;
+  border: 1px solid var(--accent-border);
   background: var(--accent-soft);
   color: var(--accent-ink);
 }
@@ -711,7 +802,7 @@ input {
   border: 1px solid var(--accent);
   border-radius: var(--radius);
   background: var(--accent);
-  color: #fff;
+  color: var(--user-ink);
   font-weight: 600;
   font-size: 14px;
   cursor: pointer;
@@ -773,7 +864,7 @@ input {
 
 .source-card:hover,
 .source-card.expanded {
-  border-color: #bfdbfe;
+  border-color: var(--accent-border);
   background: var(--accent-soft);
 }
 
@@ -802,7 +893,7 @@ input {
 .backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(17, 24, 39, 0.28);
+  background: var(--backdrop);
   z-index: 40;
 }
 
@@ -829,7 +920,7 @@ input {
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 16px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow);
 }
 
 .modal-wide {
@@ -894,7 +985,7 @@ input {
     height: 100dvh;
     transform: translateX(100%);
     transition: transform 0.18s ease;
-    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.08);
+    box-shadow: var(--panel-shadow);
   }
 
   .sources-panel.open {
@@ -933,7 +1024,7 @@ input {
     height: 100dvh;
     transform: translateX(-100%);
     transition: transform 0.18s ease;
-    box-shadow: 8px 0 24px rgba(0, 0, 0, 0.08);
+    box-shadow: var(--panel-shadow);
   }
 
   .sidebar.open {

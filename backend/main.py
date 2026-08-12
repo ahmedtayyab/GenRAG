@@ -33,7 +33,7 @@ from ingestion import extract_pdf_text
 from llm import generate_conversation_title
 from memory import list_memories, remove_memory
 from rag import build_rag_response
-from vector_store import StoredChunk, delete_document_vectors, save_document_vectors
+from vector_store import StoredChunk, delete_document_vectors, has_document_vectors, save_document_vectors
 
 load_dotenv()
 
@@ -158,7 +158,10 @@ async def upload_document(file: UploadFile = File(...)):
 
 @app.get("/documents")
 def get_documents():
-    return {"documents": list_documents()}
+    docs = list_documents()
+    for doc in docs:
+        doc["has_vectors"] = has_document_vectors(doc["id"])
+    return {"documents": docs}
 
 
 @app.delete("/documents/{document_id}")
@@ -217,6 +220,8 @@ def chat(request: ChatRequest):
     document_ids = _resolve_document_ids(request)
 
     filenames: dict[str, str] = {}
+    ready_ids: list[str] = []
+    missing_vector_names: list[str] = []
     for doc_id in document_ids:
         doc = get_document(doc_id)
         if not doc:
@@ -225,6 +230,20 @@ def chat(request: ChatRequest):
                 detail=f"Selected document not found: {doc_id}. Upload a PDF first.",
             )
         filenames[doc_id] = doc["filename"]
+        if has_document_vectors(doc_id):
+            ready_ids.append(doc_id)
+        else:
+            missing_vector_names.append(doc["filename"])
+
+    if document_ids and not ready_ids:
+        names = ", ".join(missing_vector_names) or "selected documents"
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Selected document(s) have no searchable embeddings: {names}. "
+                "Delete them from Documents and re-upload the PDF(s) so they can be embedded again."
+            ),
+        )
 
     try:
         history = get_recent_history(conversation_id)
@@ -232,13 +251,21 @@ def chat(request: ChatRequest):
             user_message=request.message,
             history=history,
             mode=mode,
-            document_ids=document_ids,
+            document_ids=ready_ids,
             document_filenames=filenames,
         )
     except ValueError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"LLM request failed: {exc}") from exc
+
+    if missing_vector_names:
+        skipped = ", ".join(missing_vector_names)
+        result["reply"] = (
+            f"(Note: skipped documents without embeddings: {skipped}. "
+            "Delete and re-upload them to use them in chat.)\n\n"
+            + result["reply"]
+        )
 
     is_first_turn = count_messages(conversation_id) == 0
     add_message(conversation_id, "user", request.message)

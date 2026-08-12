@@ -31,7 +31,10 @@ def build_rag_response(
             final_top_k=6,
         )
 
-    system_prompt = _build_system_prompt(mode, memories, chunks)
+    selected_names = [
+        (document_filenames or {}).get(doc_id, doc_id) for doc_id in selected_ids
+    ]
+    system_prompt = _build_system_prompt(mode, memories, chunks, selected_names)
     final_user_message = _build_user_message(mode, user_message, chunks)
 
     reply = ask_llm_with_system(system_prompt, history, final_user_message)
@@ -63,12 +66,31 @@ def build_rag_response(
     return result
 
 
-def _build_system_prompt(mode: str, memories: list[MemoryRecord], chunks: list[SearchResult]) -> str:
+def _build_system_prompt(
+    mode: str,
+    memories: list[MemoryRecord],
+    chunks: list[SearchResult],
+    selected_doc_names: list[str] | None = None,
+) -> str:
     memory_block = "\n".join(f"- {m.text}" for m in memories) if memories else "(none)"
-    context_block = "\n\n---\n\n".join(
-        f"[Source: {c.filename or 'Document'} | Page {c.page} | score {c.score}]\n{c.text}"
-        for c in chunks
-    ) if chunks else "(no document loaded — answer from general knowledge or say you need a document)"
+    selected = selected_doc_names or []
+
+    if chunks:
+        context_block = "\n\n---\n\n".join(
+            f"[Source: {c.filename or 'Document'} | Page {c.page} | score {c.score}]\n{c.text}"
+            for c in chunks
+        )
+    elif selected:
+        names = ", ".join(selected)
+        context_block = (
+            f"(Documents selected: {names}. No matching chunks were retrieved for this question. "
+            "Say you could not find relevant passages in the selected documents.)"
+        )
+    else:
+        context_block = (
+            "(no documents selected — answer from general knowledge, "
+            "and tell the user to select documents in the sidebar for document-grounded answers)"
+        )
 
     base = f"""You are GenRAG, a document learning assistant.
 
@@ -80,8 +102,10 @@ DOCUMENT CONTEXT (retrieved chunks — prefer these for factual answers):
 
 Rules:
 - Answer using DOCUMENT CONTEXT when the answer is there.
-- If the answer is NOT in the document context, say clearly that it is not in the uploaded document.
+- If documents are selected but the context has no useful passages, say you could not find that in the selected documents.
+- If no documents are selected, say so clearly and answer from general knowledge if appropriate.
 - Do not invent page numbers, filenames, or quotes not present in context.
+- Do not say "no document uploaded" if documents are listed as selected above.
 - Cite filename and pages when using document context (e.g. "DSA Notes.pdf, pages 3–4").
 """
 

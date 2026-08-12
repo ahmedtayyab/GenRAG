@@ -76,6 +76,17 @@ def delete_document_vectors(document_id: str) -> bool:
         return False
 
 
+def has_document_vectors(document_id: str) -> bool:
+    """True if this document has a Chroma collection with at least one chunk."""
+    client = _get_client()
+    name = _collection_name(document_id)
+    try:
+        collection = client.get_collection(name)
+        return collection.count() > 0
+    except Exception:
+        return False
+
+
 def search(document_id: str, query_vector: list[float], top_k: int = 3, filename: str = "") -> list[SearchResult]:
     client = _get_client()
     name = _collection_name(document_id)

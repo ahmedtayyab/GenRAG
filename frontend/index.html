@@ -1,9 +1,19 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>GenRAG — Document Learning Workspace</title>
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem("genrag_theme");
+        document.documentElement.setAttribute("data-theme", saved === "light" ? "light" : "dark");
+      } catch (e) {
+        document.documentElement.setAttribute("data-theme", "dark");
+      }
+    })();
+  </script>
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
@@ -60,8 +70,11 @@
       </section>
 
       <div class="sidebar-footer">
-        <button type="button" class="text-btn" id="memory-btn">Memory · <span id="memory-count">0</span></button>
-        <button type="button" class="text-btn" id="debug-btn">Debug</button>
+        <div class="sidebar-footer-left">
+          <button type="button" class="text-btn" id="memory-btn">Memory · <span id="memory-count">0</span></button>
+          <button type="button" class="text-btn" id="debug-btn">Debug</button>
+        </div>
+        <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Toggle color theme">Light</button>
       </div>
     </aside>
 
@@ -72,6 +85,7 @@
         <div class="chat-header-text">
           <div class="breadcrumb">GenRAG / <span id="chat-title">Chat</span></div>
           <p class="mode-hint" id="mode-hint">Ask questions about your documents.</p>
+          <p class="doc-context-status" id="doc-context-status">No documents selected</p>
         </div>
         <button type="button" class="icon-btn mobile-only" id="sources-open" aria-label="Open sources">☰ Sources</button>
       </header>
@@ -143,6 +157,7 @@
     const chatTitle = document.getElementById("chat-title");
     const modeHint = document.getElementById("mode-hint");
     const selectedDocsEl = document.getElementById("selected-docs");
+    const docContextStatus = document.getElementById("doc-context-status");
     const chatList = document.getElementById("chat-list");
     const sourcesList = document.getElementById("sources-list");
     const backdrop = document.getElementById("backdrop");
@@ -241,61 +256,97 @@
       return documentsCache.filter((d) => selectedDocumentIds.includes(d.id));
     }
 
-    function updateSelectedCount() {
-      const el = document.getElementById("selected-count");
-      if (!el) return;
-      const n = selectedDocumentIds.length;
-      el.textContent = n === 0
-        ? "No documents selected"
-        : `${n} selected for this chat`;
+    function selectionLabel() {
+      const docs = selectedDocuments();
+      if (!docs.length) return "";
+      return docs.map((d) => shortName(d.filename)).join(", ");
     }
 
-    function updateSelectedDocsChip() {
+    function announceSelectionChange() {
       const docs = selectedDocuments();
-      updateSelectedCount();
       if (!docs.length) {
-        selectedDocsEl.innerHTML = `<span class="chip muted">No documents selected — check docs in the sidebar</span>`;
+        addMessage("system", "No documents selected. Chat will answer without document retrieval.");
         return;
       }
-      selectedDocsEl.innerHTML = docs.map((doc) => `
-        <span class="chip" data-id="${escapeHtml(doc.id)}">
-          <span class="chip-icon">📄</span>
-          <span>${escapeHtml(shortName(doc.filename))}</span>
-          <button type="button" class="chip-x" title="Deselect">×</button>
-        </span>
-      `).join("") + `
-        <button type="button" class="chip muted clear-all-chip" id="clear-all-chip">Clear all</button>
-      `;
-
-      selectedDocsEl.querySelectorAll(".chip[data-id]").forEach((chip) => {
-        const btn = chip.querySelector(".chip-x");
-        btn.onclick = () => {
-          selectedDocumentIds = selectedDocumentIds.filter((id) => id !== chip.dataset.id);
-          persistSelectedDocs();
-          updateSelectedDocsChip();
-          renderDocList(documentsCache);
-        };
-      });
-      const clearAll = document.getElementById("clear-all-chip");
-      if (clearAll) {
-        clearAll.onclick = () => {
-          selectedDocumentIds = [];
-          persistSelectedDocs();
-          updateSelectedDocsChip();
-          renderDocList(documentsCache);
-        };
+      const names = docs.map((d) => shortName(d.filename)).join(", ");
+      if (docs.length === 1) {
+        addMessage("system", `Document selected: ${names}`);
+      } else {
+        addMessage("system", `Documents selected (${docs.length}): ${names}`);
       }
     }
 
-    function toggleDocument(docId) {
-      if (selectedDocumentIds.includes(docId)) {
-        selectedDocumentIds = selectedDocumentIds.filter((id) => id !== docId);
+    function refreshSelectionUI() {
+      const docs = selectedDocuments();
+      const countEl = document.getElementById("selected-count");
+
+      if (countEl) {
+        if (!docs.length) {
+          countEl.textContent = "No documents selected";
+          countEl.classList.remove("has-selection");
+        } else {
+          countEl.textContent = `${docs.length} selected: ${selectionLabel()}`;
+          countEl.classList.add("has-selection");
+        }
+      }
+
+      if (docContextStatus) {
+        if (!docs.length) {
+          docContextStatus.textContent = "No documents selected for this chat";
+          docContextStatus.classList.remove("active");
+        } else {
+          docContextStatus.textContent = `Using: ${selectionLabel()}`;
+          docContextStatus.classList.add("active");
+        }
+      }
+
+      if (!docs.length) {
+        selectedDocsEl.innerHTML = `<span class="chip muted">No documents selected — check docs in the sidebar</span>`;
       } else {
-        selectedDocumentIds.push(docId);
+        selectedDocsEl.innerHTML = docs.map((doc) => `
+          <span class="chip" data-id="${escapeHtml(doc.id)}">
+            <span class="chip-icon">📄</span>
+            <span>${escapeHtml(shortName(doc.filename))}</span>
+            <button type="button" class="chip-x" title="Deselect">×</button>
+          </span>
+        `).join("") + `
+          <button type="button" class="chip muted clear-all-chip" id="clear-all-chip">Clear all</button>
+        `;
+
+        selectedDocsEl.querySelectorAll(".chip[data-id]").forEach((chip) => {
+          chip.querySelector(".chip-x").onclick = () => {
+            setDocumentSelected(chip.dataset.id, false, true);
+          };
+        });
+        const clearAll = document.getElementById("clear-all-chip");
+        if (clearAll) {
+          clearAll.onclick = () => clearAllDocuments(true);
+        }
+      }
+
+      renderDocList(documentsCache);
+    }
+
+    function setDocumentSelected(docId, selected, announce) {
+      const exists = selectedDocumentIds.includes(docId);
+      if (selected && !exists) selectedDocumentIds.push(docId);
+      if (!selected && exists) {
+        selectedDocumentIds = selectedDocumentIds.filter((id) => id !== docId);
       }
       persistSelectedDocs();
-      updateSelectedDocsChip();
-      renderDocList(documentsCache);
+      refreshSelectionUI();
+      if (announce) announceSelectionChange();
+    }
+
+    function toggleDocument(docId, announce = true) {
+      setDocumentSelected(docId, !selectedDocumentIds.includes(docId), announce);
+    }
+
+    function clearAllDocuments(announce) {
+      selectedDocumentIds = [];
+      persistSelectedDocs();
+      refreshSelectionUI();
+      if (announce) announceSelectionChange();
     }
 
     function showEmptyState() {
@@ -570,23 +621,43 @@
 
       filtered.forEach((doc) => {
         const selected = selectedDocumentIds.includes(doc.id);
+        const ready = doc.has_vectors !== false;
         const li = document.createElement("li");
-        li.className = "doc-item" + (selected ? " selected" : "");
+        li.className = "doc-item"
+          + (selected ? " selected" : "")
+          + (ready ? "" : " needs-reupload");
 
         const check = document.createElement("input");
         check.type = "checkbox";
         check.className = "doc-check";
         check.checked = selected;
-        check.title = "Use in this chat";
-        check.onchange = () => toggleDocument(doc.id);
+        check.disabled = !ready;
+        check.title = ready
+          ? (selected ? "Selected for this chat" : "Select for this chat")
+          : "Re-upload required — embeddings missing";
+        check.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!ready) {
+            addMessage("error", `"${shortName(doc.filename)}" has no embeddings. Delete it and re-upload the PDF.`);
+            return;
+          }
+          toggleDocument(doc.id, true);
+        });
 
         const info = document.createElement("div");
         info.className = "doc-info";
         info.innerHTML = `
           <div class="doc-name"><span class="doc-icon">📄</span> ${escapeHtml(shortName(doc.filename))}</div>
-          <small>${doc.page_count} pages · ${doc.chunk_count} chunks</small>
+          <small>${doc.page_count} pages · ${doc.chunk_count} chunks${selected ? " · selected" : ""}${ready ? "" : " · re-upload required"}</small>
         `;
-        info.onclick = () => toggleDocument(doc.id);
+        info.onclick = () => {
+          if (!ready) {
+            addMessage("error", `"${shortName(doc.filename)}" has no embeddings. Delete it and re-upload the PDF.`);
+            return;
+          }
+          toggleDocument(doc.id, true);
+        };
 
         const delBtn = document.createElement("button");
         delBtn.type = "button";
@@ -603,6 +674,12 @@
         li.appendChild(delBtn);
         docList.appendChild(li);
       });
+
+      const broken = docs.filter((d) => d.has_vectors === false);
+      if (broken.length) {
+        const note = document.getElementById("selected-count");
+        // keep selection text; broken docs shown on rows
+      }
     }
 
     async function loadDocuments() {
@@ -611,11 +688,24 @@
       documentsCache = data.documents || [];
 
       const validIds = new Set(documentsCache.map((d) => d.id));
-      selectedDocumentIds = selectedDocumentIds.filter((id) => validIds.has(id));
-      persistSelectedDocs();
+      const readyIds = new Set(
+        documentsCache.filter((d) => d.has_vectors !== false).map((d) => d.id)
+      );
+      selectedDocumentIds = selectedDocumentIds.filter(
+        (id) => validIds.has(id) && readyIds.has(id)
+      );
 
-      renderDocList(documentsCache);
-      updateSelectedDocsChip();
+      persistSelectedDocs();
+      refreshSelectionUI();
+
+      const broken = documentsCache.filter((d) => d.has_vectors === false);
+      if (broken.length && !sessionStorage.getItem("genrag_warned_missing_vectors")) {
+        sessionStorage.setItem("genrag_warned_missing_vectors", "1");
+        addMessage(
+          "system",
+          `These PDFs are in your library but have no searchable embeddings: ${broken.map((d) => shortName(d.filename)).join(", ")}. Delete them (×) and re-upload so chat can use them.`
+        );
+      }
     }
 
     async function loadMemories() {
@@ -688,10 +778,7 @@
     document.getElementById("sources-close").addEventListener("click", closeModals);
 
     document.getElementById("clear-docs-btn").addEventListener("click", () => {
-      selectedDocumentIds = [];
-      persistSelectedDocs();
-      updateSelectedDocsChip();
-      renderDocList(documentsCache);
+      clearAllDocuments(true);
     });
 
     uploadBtn.addEventListener("click", () => pdfUpload.click());
@@ -721,17 +808,19 @@
         }
         if (!res.ok) throw new Error(data.detail || `Upload failed (${res.status})`);
 
-        if (!selectedDocumentIds.includes(data.document_id)) {
-          selectedDocumentIds.push(data.document_id);
-          persistSelectedDocs();
-        }
+        const alreadySelected = selectedDocumentIds.includes(data.document_id);
+        if (!alreadySelected) selectedDocumentIds.push(data.document_id);
+        persistSelectedDocs();
 
         if (data.already_exists) {
-          addMessage("system", `Already in library: "${data.filename}". Reusing existing embeddings (no re-processing).`);
+          addMessage("system", `Already in library: "${data.filename}". Reusing existing embeddings.`);
         } else {
           addMessage("system", `Uploaded "${data.filename}" — ${data.chunk_count} chunks from ${data.page_count} pages.`);
         }
         await loadDocuments();
+        if (!alreadySelected) {
+          addMessage("system", `Document selected: ${shortName(data.filename)}`);
+        }
       } catch (e) {
         const msg = e.name === "AbortError"
           ? "Upload timed out. PDF may be too large — try again or use a smaller file."
@@ -803,6 +892,23 @@
     });
 
     newChatBtn.addEventListener("click", startNewChat);
+
+    function currentTheme() {
+      return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+    }
+
+    function applyTheme(theme) {
+      const next = theme === "light" ? "light" : "dark";
+      document.documentElement.setAttribute("data-theme", next);
+      localStorage.setItem("genrag_theme", next);
+      const btn = document.getElementById("theme-toggle");
+      if (btn) btn.textContent = next === "dark" ? "Light" : "Dark";
+    }
+
+    document.getElementById("theme-toggle").addEventListener("click", () => {
+      applyTheme(currentTheme() === "dark" ? "light" : "dark");
+    });
+    applyTheme(currentTheme());
 
     setConversationTitle(conversationTitle);
     setMode(currentMode);
