@@ -1,6 +1,5 @@
 # Document → chunks (Phase 3)
 
-import re
 from dataclasses import dataclass
 
 

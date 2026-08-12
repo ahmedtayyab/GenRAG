@@ -21,8 +21,7 @@
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
-  <div class="app" id="app">
-    <!-- LEFT SIDEBAR -->
+  <div class="app">
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-top">
         <div class="brand">
@@ -52,7 +51,7 @@
           <h2>Chats</h2>
         </div>
         <button type="button" class="btn-secondary" id="new-chat-btn">+ New chat</button>
-        <div class="chat-history" id="chat-history">
+        <div class="chat-history">
           <ul class="chat-list" id="chat-list"></ul>
         </div>
       </section>
@@ -84,7 +83,6 @@
       </div>
     </aside>
 
-    <!-- CENTER CHAT -->
     <main class="main">
       <header class="chat-header">
         <button type="button" class="icon-btn mobile-only" id="sidebar-open" aria-label="Open library">☰</button>
@@ -110,7 +108,6 @@
       </div>
     </main>
 
-    <!-- RIGHT SOURCES -->
     <aside class="sources-panel" id="sources-panel">
       <div class="sources-head">
         <h2>Sources</h2>
@@ -124,7 +121,6 @@
 
   <div class="backdrop" id="backdrop" hidden></div>
 
-  <!-- Memory modal -->
   <div class="modal" id="memory-modal" hidden>
     <div class="modal-card">
       <div class="modal-head">
@@ -136,7 +132,6 @@
     </div>
   </div>
 
-  <!-- Debug modal -->
   <div class="modal" id="debug-modal" hidden>
     <div class="modal-card modal-wide">
       <div class="modal-head">
@@ -195,7 +190,6 @@
 
     const MODE_COPY = {
       chat: {
-        title: "Chat",
         hint: "Ask questions about your documents.",
         placeholder: "Ask anything about your documents…",
         emptyTitle: "How can I help you learn?",
@@ -208,7 +202,6 @@
         ],
       },
       learning: {
-        title: "Learning",
         hint: "Ask me anything about your documents — I’ll teach step by step.",
         placeholder: "Ask to learn a concept…",
         emptyTitle: "Learning mode",
@@ -221,7 +214,6 @@
         ],
       },
       interview: {
-        title: "Interview",
         hint: "I’ll ask questions based on your selected material.",
         placeholder: "Answer the interview question…",
         emptyTitle: "Interview mode",
@@ -314,8 +306,7 @@
       } else {
         selectedDocsEl.innerHTML = docs.map((doc) => `
           <span class="chip" data-id="${escapeHtml(doc.id)}">
-            <span class="chip-icon">📄</span>
-            <span>${escapeHtml(shortName(doc.filename))}</span>
+            <span>📄 ${escapeHtml(shortName(doc.filename))}</span>
             <button type="button" class="chip-x" title="Deselect">×</button>
           </span>
         `).join("") + `
@@ -415,6 +406,32 @@
       }
       messagesEl.appendChild(div);
       messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function showGenerating() {
+      hideGenerating();
+      clearEmptyStateIfNeeded();
+      const div = document.createElement("div");
+      div.className = "message assistant generating";
+      div.id = "generating-indicator";
+      div.setAttribute("aria-live", "polite");
+      div.setAttribute("aria-label", "Generating reply");
+      div.innerHTML = `
+        <div class="message-card">
+          <div class="generating-indicator">
+            <span class="generating-dot"></span>
+            <span class="generating-dot"></span>
+            <span class="generating-dot"></span>
+          </div>
+        </div>
+      `;
+      messagesEl.appendChild(div);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function hideGenerating() {
+      const el = document.getElementById("generating-indicator");
+      if (el) el.remove();
     }
 
     function renderSources(data) {
@@ -683,12 +700,6 @@
         li.appendChild(delBtn);
         docList.appendChild(li);
       });
-
-      const broken = docs.filter((d) => d.has_vectors === false);
-      if (broken.length) {
-        const note = document.getElementById("selected-count");
-        // keep selection text; broken docs shown on rows
-      }
     }
 
     async function loadDocuments() {
@@ -854,6 +865,7 @@
       addMessage("user", text);
       input.value = "";
       sendBtn.disabled = true;
+      showGenerating();
 
       try {
         const res = await fetch(`${API_BASE}/chat`, {
@@ -867,6 +879,7 @@
           }),
         });
         const data = await res.json();
+        hideGenerating();
         if (!res.ok) {
           addMessage("error", data.detail || "Request failed.");
           return;
@@ -893,8 +906,10 @@
         }
         loadDebug();
       } catch {
+        hideGenerating();
         addMessage("error", "Cannot reach backend. Is uvicorn running on port 8000?");
       } finally {
+        hideGenerating();
         sendBtn.disabled = false;
         input.focus();
       }

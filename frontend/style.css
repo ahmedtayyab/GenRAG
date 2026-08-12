@@ -14,7 +14,6 @@
   --accent-soft: #1a1c22;
   --accent-ink: #c5cdd9;
   --accent-border: #2e3340;
-  --brand: #001B5E;
   --error: #f87171;
   --error-bg: #3f1d1d;
   --warning: #fbbf24;
@@ -47,7 +46,6 @@
   --accent-soft: #eef2ff;
   --accent-ink: #001B5E;
   --accent-border: #c7d2fe;
-  --brand: #001B5E;
   --error: #dc2626;
   --error-bg: #fef2f2;
   --warning: #fbbf24;
@@ -232,13 +230,6 @@ input {
 
 [data-theme="dark"] .brand-logo-dark { display: block; }
 [data-theme="dark"] .brand-logo-light { display: none; }
-
-.brand h1 {
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--brand, var(--ink));
-}
 
 .brand p {
   font-size: 12px;
@@ -695,6 +686,47 @@ input {
   color: var(--accent-ink);
   margin-top: 8px;
   font-weight: 600;
+}
+
+.message.generating .message-card {
+  padding: 14px 18px;
+  width: fit-content;
+}
+
+.generating-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 1.2em;
+}
+
+.generating-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+  animation: generating-bounce 1.2s ease-in-out infinite;
+}
+
+.generating-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.generating-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes generating-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  30% {
+    transform: translateY(-5px);
+    opacity: 1;
+  }
 }
 
 .message.assistant .message-body {

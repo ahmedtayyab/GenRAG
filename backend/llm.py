@@ -43,11 +43,7 @@ def ask_llm_with_system(system_prompt: str, history: list[dict], user_message: s
 
 def generate_conversation_title(first_message: str) -> str:
     """Short readable title from the first user message (no extra Gemini call)."""
-    return _fallback_title(first_message)
-
-
-def _fallback_title(text: str) -> str:
-    cleaned = " ".join((text or "").strip().split())
+    cleaned = " ".join((first_message or "").strip().split())
     if not cleaned:
         return "New chat"
     if len(cleaned) <= 48:
