@@ -21,7 +21,9 @@ def init_db() -> None:
             """
             CREATE TABLE IF NOT EXISTS conversations (
                 id TEXT PRIMARY KEY,
-                created_at TEXT DEFAULT (datetime('now'))
+                title TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
             );
 
             CREATE TABLE IF NOT EXISTS messages (
@@ -51,11 +53,29 @@ def init_db() -> None:
             );
             """
         )
+        _migrate_conversations(conn)
+
+
+def _migrate_conversations(conn: sqlite3.Connection) -> None:
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(conversations)").fetchall()}
+    if "title" not in cols:
+        conn.execute("ALTER TABLE conversations ADD COLUMN title TEXT")
+    if "updated_at" not in cols:
+        conn.execute("ALTER TABLE conversations ADD COLUMN updated_at TEXT")
+        conn.execute(
+            "UPDATE conversations SET updated_at = COALESCE(created_at, datetime('now')) WHERE updated_at IS NULL"
+        )
 
 
 def ensure_conversation(conversation_id: str) -> None:
     with get_connection() as conn:
-        conn.execute("INSERT OR IGNORE INTO conversations (id) VALUES (?)", (conversation_id,))
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO conversations (id, created_at, updated_at)
+            VALUES (?, datetime('now'), datetime('now'))
+            """,
+            (conversation_id,),
+        )
 
 
 def add_message(conversation_id: str, role: str, content: str) -> None:
@@ -64,6 +84,10 @@ def add_message(conversation_id: str, role: str, content: str) -> None:
         conn.execute(
             "INSERT INTO messages (conversation_id, role, content) VALUES (?, ?, ?)",
             (conversation_id, role, content),
+        )
+        conn.execute(
+            "UPDATE conversations SET updated_at = datetime('now') WHERE id = ?",
+            (conversation_id,),
         )
 
 
@@ -79,6 +103,85 @@ def get_recent_history(conversation_id: str, limit: int = HISTORY_LIMIT * 2) -> 
             (conversation_id, limit),
         ).fetchall()
     return [{"role": row["role"], "content": row["content"]} for row in reversed(rows)]
+
+
+def get_full_history(conversation_id: str) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT role, content FROM messages
+            WHERE conversation_id = ?
+            ORDER BY id ASC
+            """,
+            (conversation_id,),
+        ).fetchall()
+    return [{"role": row["role"], "content": row["content"]} for row in rows]
+
+
+def count_messages(conversation_id: str) -> int:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ?",
+            (conversation_id,),
+        ).fetchone()
+    return int(row["n"]) if row else 0
+
+
+def get_conversation(conversation_id: str) -> dict | None:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id, title, created_at, updated_at FROM conversations WHERE id = ?",
+            (conversation_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def set_conversation_title(conversation_id: str, title: str) -> None:
+    ensure_conversation(conversation_id)
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE conversations SET title = ?, updated_at = datetime('now') WHERE id = ?",
+            (title, conversation_id),
+        )
+
+
+def list_conversations(limit: int = 50) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT c.id,
+                   COALESCE(
+                     NULLIF(c.title, ''),
+                     (
+                       SELECT CASE
+                         WHEN length(m.content) > 48 THEN substr(m.content, 1, 45) || '…'
+                         ELSE m.content
+                       END
+                       FROM messages m
+                       WHERE m.conversation_id = c.id AND m.role = 'user'
+                       ORDER BY m.id ASC
+                       LIMIT 1
+                     ),
+                     'Untitled chat'
+                   ) AS title,
+                   c.created_at,
+                   c.updated_at,
+                   (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) AS message_count
+            FROM conversations c
+            WHERE EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id = c.id)
+            ORDER BY COALESCE(c.updated_at, c.created_at) DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def delete_conversation(conversation_id: str) -> bool:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM messages WHERE conversation_id = ?", (conversation_id,))
+        cur = conn.execute("DELETE FROM conversations WHERE id = ?", (conversation_id,))
+        return cur.rowcount > 0
 
 
 def clear_conversation(conversation_id: str) -> None:

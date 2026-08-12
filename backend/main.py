@@ -12,16 +12,23 @@ from chunking import chunk_pages
 from database import (
     add_message,
     clear_conversation,
+    count_messages,
+    delete_conversation,
     delete_document,
+    get_conversation,
     get_document,
+    get_full_history,
     get_recent_history,
     init_db,
+    list_conversations,
     list_documents,
     save_document,
+    set_conversation_title,
 )
 from debug_state import get_debug
 from embeddings import embed_texts
 from ingestion import extract_pdf_text
+from llm import generate_conversation_title
 from memory import list_memories, remove_memory
 from rag import build_rag_response
 from vector_store import StoredChunk, delete_document_vectors, save_document_vectors
@@ -55,6 +62,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     conversation_id: str
+    title: str | None = None
     sources: list = []
     retrieved_chunks: list = []
     memories_used: list = []
@@ -139,6 +147,29 @@ def debug_last():
     return get_debug()  # shows last retrieval, prompt, scores — educational transparency
 
 
+@app.get("/conversations")
+def get_conversations():
+    return {"conversations": list_conversations()}
+
+
+@app.get("/conversations/{conversation_id}")
+def get_conversation_detail(conversation_id: str):
+    convo = get_conversation(conversation_id)
+    if not convo or count_messages(conversation_id) == 0:
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    return {
+        **convo,
+        "messages": get_full_history(conversation_id),
+    }
+
+
+@app.delete("/conversations/{conversation_id}")
+def remove_conversation(conversation_id: str):
+    if not delete_conversation(conversation_id):
+        raise HTTPException(status_code=404, detail="Conversation not found.")
+    return {"status": "ok", "conversation_id": conversation_id}
+
+
 @app.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest):
     conversation_id = request.conversation_id or str(uuid4())
@@ -160,12 +191,22 @@ def chat(request: ChatRequest):
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"LLM request failed: {exc}") from exc
 
+    is_first_turn = count_messages(conversation_id) == 0
     add_message(conversation_id, "user", request.message)
     add_message(conversation_id, "assistant", result["reply"])
+
+    title = None
+    convo = get_conversation(conversation_id)
+    if is_first_turn or not (convo and convo.get("title")):
+        title = generate_conversation_title(request.message)
+        set_conversation_title(conversation_id, title)
+    else:
+        title = convo.get("title")
 
     return ChatResponse(
         reply=result["reply"],
         conversation_id=conversation_id,
+        title=title,
         sources=result.get("sources", []),
         retrieved_chunks=result.get("retrieved_chunks", []),
         memories_used=result.get("memories_used", []),
@@ -175,5 +216,6 @@ def chat(request: ChatRequest):
 
 @app.post("/chat/reset")
 def reset_chat(conversation_id: str):
+    # Kept for compatibility — prefer DELETE /conversations/{id} or starting a new id
     clear_conversation(conversation_id)
     return {"status": "ok", "conversation_id": conversation_id}

@@ -35,12 +35,7 @@
         </div>
         <button type="button" class="btn-secondary" id="new-chat-btn">+ New chat</button>
         <div class="chat-history" id="chat-history">
-          <p class="muted-note">Current conversation appears here. Full history list coming later.</p>
-          <ul class="chat-list" id="chat-list">
-            <li class="chat-item active" id="current-chat-item">
-              <span class="chat-item-title" id="current-chat-label">Current chat</span>
-            </li>
-          </ul>
+          <ul class="chat-list" id="chat-list"></ul>
         </div>
       </section>
 
@@ -146,13 +141,14 @@
     const chatTitle = document.getElementById("chat-title");
     const modeHint = document.getElementById("mode-hint");
     const selectedDocsEl = document.getElementById("selected-docs");
+    const chatList = document.getElementById("chat-list");
     const sourcesList = document.getElementById("sources-list");
-    const currentChatLabel = document.getElementById("current-chat-label");
     const backdrop = document.getElementById("backdrop");
     const sidebar = document.getElementById("sidebar");
     const sourcesPanel = document.getElementById("sources-panel");
 
     let conversationId = localStorage.getItem("genrag_conversation_id");
+    let conversationTitle = localStorage.getItem("genrag_conversation_title") || "New chat";
     let selectedDocumentId = localStorage.getItem("genrag_document_id");
     let currentMode = localStorage.getItem("genrag_mode") || "chat";
     let documentsCache = [];
@@ -342,6 +338,12 @@
       });
     }
 
+    function setConversationTitle(title) {
+      conversationTitle = title || "New chat";
+      localStorage.setItem("genrag_conversation_title", conversationTitle);
+      chatTitle.textContent = conversationTitle;
+    }
+
     function setMode(mode) {
       currentMode = mode;
       localStorage.setItem("genrag_mode", mode);
@@ -349,22 +351,139 @@
         btn.classList.toggle("active", btn.dataset.mode === mode);
       });
       const copy = MODE_COPY[mode] || MODE_COPY.chat;
-      chatTitle.textContent = copy.title;
       modeHint.textContent = copy.hint;
       input.placeholder = copy.placeholder;
-      currentChatLabel.textContent = copy.title + " session";
+      chatTitle.textContent = conversationTitle || "New chat";
       if (!hasMessages) showEmptyState();
     }
 
-    async function startNewChat() {
-      if (conversationId) {
-        await fetch(`${API_BASE}/chat/reset?conversation_id=${conversationId}`, { method: "POST" });
+    function formatChatDate(value) {
+      if (!value) return "";
+      const d = new Date(String(value).replace(" ", "T"));
+      if (Number.isNaN(d.getTime())) return "";
+      const today = new Date();
+      const yesterday = new Date();
+      yesterday.setDate(today.getDate() - 1);
+      const sameDay = (a, b) =>
+        a.getFullYear() === b.getFullYear() &&
+        a.getMonth() === b.getMonth() &&
+        a.getDate() === b.getDate();
+      if (sameDay(d, today)) return "Today";
+      if (sameDay(d, yesterday)) return "Yesterday";
+      return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    }
+
+    async function loadConversations() {
+      try {
+        const res = await fetch(`${API_BASE}/conversations`);
+        const data = await res.json();
+        const conversations = data.conversations || [];
+        chatList.innerHTML = "";
+
+        if (!conversations.length) {
+          chatList.innerHTML = `<li class="empty-list">No chats yet.</li>`;
+          return;
+        }
+
+        let lastGroup = null;
+        conversations.forEach((c) => {
+          const group = formatChatDate(c.updated_at || c.created_at);
+          if (group && group !== lastGroup) {
+            const label = document.createElement("li");
+            label.className = "chat-group";
+            label.textContent = group;
+            chatList.appendChild(label);
+            lastGroup = group;
+          }
+
+          const li = document.createElement("li");
+          li.className = "chat-item" + (c.id === conversationId ? " active" : "");
+
+          const titleBtn = document.createElement("button");
+          titleBtn.type = "button";
+          titleBtn.className = "chat-item-title";
+          titleBtn.textContent = c.title || "Untitled chat";
+          titleBtn.onclick = () => openConversation(c.id);
+
+          const delBtn = document.createElement("button");
+          delBtn.type = "button";
+          delBtn.className = "doc-delete";
+          delBtn.title = "Delete chat";
+          delBtn.textContent = "×";
+          delBtn.onclick = (e) => {
+            e.stopPropagation();
+            deleteConversation(c.id, c.title || "Untitled chat");
+          };
+
+          li.appendChild(titleBtn);
+          li.appendChild(delBtn);
+          chatList.appendChild(li);
+        });
+      } catch {
+        chatList.innerHTML = `<li class="empty-list">Could not load chats.</li>`;
       }
+    }
+
+    async function openConversation(id, options = {}) {
+      const silent = !!options.silent;
+      const res = await fetch(`${API_BASE}/conversations/${id}`);
+      let data = {};
+      try {
+        data = await res.json();
+      } catch {
+        data = {};
+      }
+      if (!res.ok) {
+        if (!silent) addMessage("error", data.detail || "Could not open chat.");
+        if (silent) startNewChat();
+        return;
+      }
+
+      conversationId = id;
+      localStorage.setItem("genrag_conversation_id", id);
+      setConversationTitle(data.title || "Untitled chat");
+
+      messagesEl.innerHTML = "";
+      hasMessages = false;
+      sourcesList.innerHTML = `<p class="muted-note">Retrieved chunks from your documents will appear here after you ask a question.</p>`;
+
+      const messages = data.messages || [];
+      if (!messages.length) {
+        showEmptyState();
+      } else {
+        messages.forEach((m) => {
+          if (m.role === "user" || m.role === "assistant") {
+            addMessage(m.role, m.content);
+          }
+        });
+      }
+      await loadConversations();
+    }
+
+    async function deleteConversation(id, title) {
+      if (!confirm(`Delete chat "${title}"?`)) return;
+      const res = await fetch(`${API_BASE}/conversations/${id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) {
+        addMessage("error", data.detail || "Could not delete chat.");
+        return;
+      }
+      if (conversationId === id) {
+        startNewChat();
+      } else {
+        await loadConversations();
+      }
+    }
+
+    function startNewChat() {
       localStorage.removeItem("genrag_conversation_id");
+      localStorage.removeItem("genrag_conversation_title");
       conversationId = null;
+      setConversationTitle("New chat");
       debugPanel.textContent = "Send a message to see the retrieval pipeline.";
       sourcesList.innerHTML = `<p class="muted-note">Retrieved chunks from your documents will appear here after you ask a question.</p>`;
       showEmptyState();
+      loadConversations();
     }
 
     async function deleteDocument(docId, filename) {
@@ -583,6 +702,8 @@
 
         conversationId = data.conversation_id;
         localStorage.setItem("genrag_conversation_id", conversationId);
+        if (data.title) setConversationTitle(data.title);
+        loadConversations();
 
         let meta = "";
         if (data.sources && data.sources.length && data.sources[0].pages) {
@@ -606,10 +727,14 @@
 
     newChatBtn.addEventListener("click", startNewChat);
 
+    setConversationTitle(conversationTitle);
     setMode(currentMode);
     showEmptyState();
     loadDocuments();
     loadMemories();
+    loadConversations().then(() => {
+      if (conversationId) openConversation(conversationId, { silent: true });
+    });
   </script>
 </body>
 </html>

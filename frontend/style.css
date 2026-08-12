@@ -279,7 +279,10 @@ input {
 }
 
 .chat-item {
-  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
   border-radius: var(--radius-sm);
   font-size: 13px;
   color: var(--muted);
@@ -287,8 +290,41 @@ input {
 
 .chat-item.active {
   background: var(--bg);
+}
+
+.chat-item-title {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  color: inherit;
+  font-size: 13px;
+  padding: 6px 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-item.active .chat-item-title {
   color: var(--ink);
   font-weight: 500;
+}
+
+.chat-item-title:hover {
+  color: var(--accent-ink);
+}
+
+.chat-group {
+  list-style: none;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint);
+  padding: 10px 8px 4px;
 }
 
 .mode-section {
