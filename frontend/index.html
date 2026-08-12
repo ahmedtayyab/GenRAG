@@ -3,67 +3,128 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>GenRAG — Document Learning Assistant</title>
+  <title>GenRAG — Document Learning Workspace</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
-  <div class="app">
-    <aside class="sidebar">
-      <div class="brand">
-        <h1>GenRAG</h1>
-        <p>General document learning assistant</p>
+  <div class="app" id="app">
+    <!-- LEFT SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-top">
+        <div class="brand">
+          <h1>GenRAG</h1>
+          <p>Document learning workspace</p>
+        </div>
+        <button type="button" class="icon-btn sidebar-close" id="sidebar-close" aria-label="Close sidebar">×</button>
       </div>
 
       <section class="sidebar-section">
-        <h2>Documents</h2>
+        <div class="section-head">
+          <h2>Library</h2>
+        </div>
+        <input type="search" id="doc-search" class="search-input" placeholder="Search documents…" autocomplete="off">
         <input type="file" id="pdf-upload" accept=".pdf" hidden>
-        <button type="button" class="btn-pill" id="upload-btn">Upload PDF</button>
+        <button type="button" class="btn-secondary" id="upload-btn">+ Add document</button>
         <ul id="doc-list" class="doc-list"></ul>
       </section>
 
       <section class="sidebar-section">
-        <h2>Memory</h2>
-        <ul id="memory-list" class="memory-list"></ul>
-        <p class="hint">Say: "Remember that my interview is Friday"</p>
+        <div class="section-head">
+          <h2>Chats</h2>
+        </div>
+        <button type="button" class="btn-secondary" id="new-chat-btn">+ New chat</button>
+        <div class="chat-history" id="chat-history">
+          <p class="muted-note">Current conversation appears here. Full history list coming later.</p>
+          <ul class="chat-list" id="chat-list">
+            <li class="chat-item active" id="current-chat-item">
+              <span class="chat-item-title" id="current-chat-label">Current chat</span>
+            </li>
+          </ul>
+        </div>
       </section>
 
-      <section class="sidebar-section">
+      <section class="sidebar-section mode-section">
         <h2>Mode</h2>
-        <ul class="mode-list" id="mode-list">
-          <li data-mode="chat" class="active">Chat</li>
-          <li data-mode="learning">Learning</li>
-          <li data-mode="interview">Interview</li>
-        </ul>
+        <div class="mode-cards" id="mode-list">
+          <button type="button" class="mode-card active" data-mode="chat">
+            <strong>Chat</strong>
+            <span>Ask questions normally</span>
+          </button>
+          <button type="button" class="mode-card" data-mode="learning">
+            <strong>Learning</strong>
+            <span>Learn step-by-step</span>
+          </button>
+          <button type="button" class="mode-card" data-mode="interview">
+            <strong>Interview</strong>
+            <span>Practice answering</span>
+          </button>
+        </div>
       </section>
 
-      <section class="sidebar-section debug-section">
-        <h2>Debug</h2>
-        <div id="debug-panel" class="debug-panel">Send a message to see retrieval pipeline.</div>
-      </section>
-
-      <div class="sidebar-actions">
-        <button type="button" class="btn-pill" id="new-chat-btn">New chat</button>
+      <div class="sidebar-footer">
+        <button type="button" class="text-btn" id="memory-btn">Memory · <span id="memory-count">0</span></button>
+        <button type="button" class="text-btn" id="debug-btn">Debug</button>
       </div>
     </aside>
 
+    <!-- CENTER CHAT -->
     <main class="main">
       <header class="chat-header">
-        <h2 id="chat-title">Chat</h2>
-        <span id="active-doc-label" class="active-doc-label">No document selected</span>
+        <button type="button" class="icon-btn mobile-only" id="sidebar-open" aria-label="Open library">☰</button>
+        <div class="chat-header-text">
+          <div class="breadcrumb">GenRAG / <span id="chat-title">Chat</span></div>
+          <p class="mode-hint" id="mode-hint">Ask questions about your documents.</p>
+        </div>
+        <button type="button" class="icon-btn mobile-only" id="sources-open" aria-label="Open sources">☰ Sources</button>
       </header>
 
-      <div id="messages" class="messages">
-        <div class="message system">
-          <div class="message-body">Upload a PDF, select it from the sidebar, then ask questions. Try Learning or Interview mode.</div>
-        </div>
-      </div>
+      <div id="messages" class="messages"></div>
 
-      <form id="chat-form" class="input-area">
-        <input id="user-input" type="text" placeholder="Ask GenRAG something…" autocomplete="off" required>
-        <button type="submit" id="send-btn">Send</button>
-      </form>
+      <div class="composer">
+        <div class="selected-docs" id="selected-docs"></div>
+        <form id="chat-form" class="input-area">
+          <input id="user-input" type="text" placeholder="Ask anything about your documents…" autocomplete="off" required>
+          <button type="submit" id="send-btn">Send</button>
+        </form>
+      </div>
     </main>
+
+    <!-- RIGHT SOURCES -->
+    <aside class="sources-panel" id="sources-panel">
+      <div class="sources-head">
+        <h2>Sources</h2>
+        <button type="button" class="icon-btn sources-close" id="sources-close" aria-label="Close sources">×</button>
+      </div>
+      <div id="sources-list" class="sources-list">
+        <p class="muted-note">Retrieved chunks from your documents will appear here after you ask a question.</p>
+      </div>
+    </aside>
+  </div>
+
+  <div class="backdrop" id="backdrop" hidden></div>
+
+  <!-- Memory modal -->
+  <div class="modal" id="memory-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Memory</h2>
+        <button type="button" class="icon-btn" id="memory-close" aria-label="Close">×</button>
+      </div>
+      <p class="muted-note">Say: “Remember that my interview is Friday”</p>
+      <ul id="memory-list" class="memory-list"></ul>
+    </div>
+  </div>
+
+  <!-- Debug modal -->
+  <div class="modal" id="debug-modal" hidden>
+    <div class="modal-card modal-wide">
+      <div class="modal-head">
+        <h2>Debug</h2>
+        <button type="button" class="icon-btn" id="debug-close" aria-label="Close">×</button>
+      </div>
+      <div id="debug-panel" class="debug-panel">Send a message to see the retrieval pipeline.</div>
+    </div>
   </div>
 
   <script>
@@ -77,28 +138,149 @@
     const uploadBtn = document.getElementById("upload-btn");
     const pdfUpload = document.getElementById("pdf-upload");
     const docList = document.getElementById("doc-list");
+    const docSearch = document.getElementById("doc-search");
     const memoryList = document.getElementById("memory-list");
+    const memoryCount = document.getElementById("memory-count");
     const modeList = document.getElementById("mode-list");
     const debugPanel = document.getElementById("debug-panel");
-    const activeDocLabel = document.getElementById("active-doc-label");
     const chatTitle = document.getElementById("chat-title");
+    const modeHint = document.getElementById("mode-hint");
+    const selectedDocsEl = document.getElementById("selected-docs");
+    const sourcesList = document.getElementById("sources-list");
+    const currentChatLabel = document.getElementById("current-chat-label");
+    const backdrop = document.getElementById("backdrop");
+    const sidebar = document.getElementById("sidebar");
+    const sourcesPanel = document.getElementById("sources-panel");
 
     let conversationId = localStorage.getItem("genrag_conversation_id");
     let selectedDocumentId = localStorage.getItem("genrag_document_id");
     let currentMode = localStorage.getItem("genrag_mode") || "chat";
+    let documentsCache = [];
+    let hasMessages = false;
+
+    const MODE_COPY = {
+      chat: {
+        title: "Chat",
+        hint: "Ask questions about your documents.",
+        placeholder: "Ask anything about your documents…",
+        emptyTitle: "How can I help you learn?",
+        emptySub: "Ask questions about your documents or start a learning session.",
+        suggestions: [
+          { label: "Explain a concept", text: "Explain the main concepts in this document simply." },
+          { label: "Summarize a document", text: "Summarize this document in clear bullet points." },
+          { label: "Quiz me", text: "Ask me a few questions to check my understanding of this document." },
+          { label: "Prepare me for an interview", text: "Help me prepare for an interview based on this document." },
+        ],
+      },
+      learning: {
+        title: "Learning",
+        hint: "Ask me anything about your documents — I’ll teach step by step.",
+        placeholder: "Ask to learn a concept…",
+        emptyTitle: "Learning mode",
+        emptySub: "Ask me anything about your documents.",
+        suggestions: [
+          { label: "Explain simply", text: "Explain this simply, like I’m new to the topic." },
+          { label: "Explain step-by-step", text: "Explain this step-by-step." },
+          { label: "Give an example", text: "Give a concrete example from the document." },
+          { label: "Test my understanding", text: "Test my understanding with one short question." },
+        ],
+      },
+      interview: {
+        title: "Interview",
+        hint: "I’ll ask questions based on your selected material.",
+        placeholder: "Answer the interview question…",
+        emptyTitle: "Interview mode",
+        emptySub: "I’ll ask questions based on your selected material. Start whenever you’re ready.",
+        suggestions: [
+          { label: "Start interview", text: "Start the interview. Ask me the first question." },
+          { label: "Focus on architecture", text: "Ask me about AI assistant architecture and tradeoffs." },
+          { label: "Focus on RAG", text: "Ask me about RAG, embeddings, and retrieval." },
+          { label: "Easier question", text: "Ask me an easier warm-up question first." },
+        ],
+      },
+    };
+
+    function escapeHtml(text) {
+      return String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function shortName(filename) {
+      return (filename || "Document").replace(/\.pdf$/i, "");
+    }
 
     function renderMarkdown(text) {
       if (typeof marked !== "undefined") {
         marked.setOptions({ breaks: true, gfm: true });
         return marked.parse(text);
       }
-      return text
-        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      return escapeHtml(text)
         .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
         .replace(/\*(.+?)\*/g, "<em>$1</em>");
     }
 
+    function selectedDocument() {
+      return documentsCache.find((d) => d.id === selectedDocumentId) || null;
+    }
+
+    function updateSelectedDocsChip() {
+      const doc = selectedDocument();
+      if (!doc) {
+        selectedDocsEl.innerHTML = `<span class="chip muted">No document selected — pick one from Library</span>`;
+        return;
+      }
+      selectedDocsEl.innerHTML = `
+        <span class="chip">
+          <span class="chip-icon">📄</span>
+          <span>${escapeHtml(shortName(doc.filename))}</span>
+          <button type="button" class="chip-x" id="clear-doc-btn" title="Deselect">×</button>
+        </span>
+      `;
+      const clearBtn = document.getElementById("clear-doc-btn");
+      if (clearBtn) {
+        clearBtn.onclick = () => {
+          selectedDocumentId = null;
+          localStorage.removeItem("genrag_document_id");
+          updateSelectedDocsChip();
+          loadDocuments();
+        };
+      }
+    }
+
+    function showEmptyState() {
+      hasMessages = false;
+      const copy = MODE_COPY[currentMode] || MODE_COPY.chat;
+      messagesEl.innerHTML = `
+        <div class="empty-state">
+          <h2>${escapeHtml(copy.emptyTitle)}</h2>
+          <p>${escapeHtml(copy.emptySub)}</p>
+          <div class="suggestion-row">
+            ${copy.suggestions.map((s) => `
+              <button type="button" class="suggestion-btn" data-text="${escapeHtml(s.text)}">${escapeHtml(s.label)}</button>
+            `).join("")}
+          </div>
+        </div>
+      `;
+      messagesEl.querySelectorAll(".suggestion-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          input.value = btn.dataset.text;
+          input.focus();
+        });
+      });
+    }
+
+    function clearEmptyStateIfNeeded() {
+      if (!hasMessages) {
+        messagesEl.innerHTML = "";
+        hasMessages = true;
+      }
+    }
+
     function addMessage(role, text, meta = "") {
+      clearEmptyStateIfNeeded();
       const div = document.createElement("div");
       div.className = `message ${role}`;
 
@@ -127,21 +309,51 @@
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
+    function renderSources(data) {
+      const chunks = data.retrieved_chunks || [];
+      const doc = selectedDocument();
+      const docName = doc ? shortName(doc.filename) : "Document";
+
+      if (!chunks.length) {
+        sourcesList.innerHTML = `<p class="muted-note">No retrieved chunks for this answer. Select a document and ask again.</p>`;
+        return;
+      }
+
+      sourcesList.innerHTML = chunks.map((c, i) => `
+        <article class="source-card" data-index="${i}">
+          <div class="source-title">📄 ${escapeHtml(docName)}</div>
+          <div class="source-page">Page ${escapeHtml(String(c.page))} · score ${escapeHtml(String(c.score))}</div>
+          <p class="source-preview">${escapeHtml((c.text || "").slice(0, 220))}${(c.text || "").length > 220 ? "…" : ""}</p>
+        </article>
+      `).join("");
+
+      sourcesList.querySelectorAll(".source-card").forEach((card) => {
+        card.addEventListener("click", () => {
+          const chunk = chunks[Number(card.dataset.index)];
+          if (!chunk) return;
+          card.classList.toggle("expanded");
+          const preview = card.querySelector(".source-preview");
+          if (card.classList.contains("expanded")) {
+            preview.textContent = chunk.text || "";
+          } else {
+            preview.textContent = (chunk.text || "").slice(0, 220) + ((chunk.text || "").length > 220 ? "…" : "");
+          }
+        });
+      });
+    }
+
     function setMode(mode) {
       currentMode = mode;
       localStorage.setItem("genrag_mode", mode);
-      modeList.querySelectorAll("li").forEach((li) => {
-        li.classList.toggle("active", li.dataset.mode === mode);
+      modeList.querySelectorAll(".mode-card").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.mode === mode);
       });
-      const titles = { chat: "Chat", learning: "Learning", interview: "Interview" };
-      chatTitle.textContent = titles[mode] || "Chat";
-      if (mode === "interview") {
-        input.placeholder = "Answer the interview question…";
-      } else if (mode === "learning") {
-        input.placeholder = "Ask to learn a concept…";
-      } else {
-        input.placeholder = "Ask GenRAG something…";
-      }
+      const copy = MODE_COPY[mode] || MODE_COPY.chat;
+      chatTitle.textContent = copy.title;
+      modeHint.textContent = copy.hint;
+      input.placeholder = copy.placeholder;
+      currentChatLabel.textContent = copy.title + " session";
+      if (!hasMessages) showEmptyState();
     }
 
     async function startNewChat() {
@@ -150,9 +362,9 @@
       }
       localStorage.removeItem("genrag_conversation_id");
       conversationId = null;
-      messagesEl.innerHTML = "";
-      addMessage("system", "New chat started. Upload or select a document, then ask a question.");
-      debugPanel.textContent = "Send a message to see retrieval pipeline.";
+      debugPanel.textContent = "Send a message to see the retrieval pipeline.";
+      sourcesList.innerHTML = `<p class="muted-note">Retrieved chunks from your documents will appear here after you ask a question.</p>`;
+      showEmptyState();
     }
 
     async function deleteDocument(docId, filename) {
@@ -166,27 +378,35 @@
       if (selectedDocumentId === docId) {
         selectedDocumentId = null;
         localStorage.removeItem("genrag_document_id");
-        activeDocLabel.textContent = "No document selected";
       }
       addMessage("system", `Removed "${filename}".`);
       await loadDocuments();
     }
 
-    async function loadDocuments() {
-      const res = await fetch(`${API_BASE}/documents`);
-      const data = await res.json();
+    function renderDocList(docs) {
+      const query = (docSearch.value || "").trim().toLowerCase();
+      const filtered = docs.filter((d) => !query || (d.filename || "").toLowerCase().includes(query));
       docList.innerHTML = "";
-      (data.documents || []).forEach((doc) => {
+
+      if (!filtered.length) {
+        docList.innerHTML = `<li class="empty-list">${docs.length ? "No matches." : "No documents yet."}</li>`;
+        return;
+      }
+
+      filtered.forEach((doc) => {
         const li = document.createElement("li");
         li.className = "doc-item" + (doc.id === selectedDocumentId ? " selected" : "");
 
         const info = document.createElement("div");
         info.className = "doc-info";
-        info.innerHTML = `<strong>${doc.filename}</strong><br><small>${doc.chunk_count} chunks · ${doc.page_count} pages</small>`;
+        info.innerHTML = `
+          <div class="doc-name"><span class="doc-icon">📄</span> ${escapeHtml(shortName(doc.filename))}</div>
+          <small>${doc.chunk_count} chunks · ${doc.page_count} pages</small>
+        `;
         info.onclick = () => {
           selectedDocumentId = doc.id;
           localStorage.setItem("genrag_document_id", doc.id);
-          activeDocLabel.textContent = doc.filename;
+          updateSelectedDocsChip();
           loadDocuments();
         };
 
@@ -204,27 +424,35 @@
         li.appendChild(delBtn);
         docList.appendChild(li);
       });
-      if (selectedDocumentId) {
-        const active = (data.documents || []).find((d) => d.id === selectedDocumentId);
-        if (!active) {
-          selectedDocumentId = null;
-          localStorage.removeItem("genrag_document_id");
-          activeDocLabel.textContent = "No document selected";
-        } else {
-          activeDocLabel.textContent = active.filename;
-        }
-      } else {
-        activeDocLabel.textContent = "No document selected";
+    }
+
+    async function loadDocuments() {
+      const res = await fetch(`${API_BASE}/documents`);
+      const data = await res.json();
+      documentsCache = data.documents || [];
+
+      if (selectedDocumentId && !documentsCache.find((d) => d.id === selectedDocumentId)) {
+        selectedDocumentId = null;
+        localStorage.removeItem("genrag_document_id");
       }
+
+      renderDocList(documentsCache);
+      updateSelectedDocsChip();
     }
 
     async function loadMemories() {
       const res = await fetch(`${API_BASE}/memories`);
       const data = await res.json();
+      const memories = data.memories || [];
+      memoryCount.textContent = String(memories.length);
       memoryList.innerHTML = "";
-      (data.memories || []).forEach((m) => {
+      if (!memories.length) {
+        memoryList.innerHTML = `<li class="empty-list">No memories yet.</li>`;
+        return;
+      }
+      memories.forEach((m) => {
         const li = document.createElement("li");
-        li.textContent = `[${m.category}] ${m.text}`;
+        li.innerHTML = `<span class="mem-cat">${escapeHtml(m.category)}</span> ${escapeHtml(m.text)}`;
         memoryList.appendChild(li);
       });
     }
@@ -233,31 +461,67 @@
       const res = await fetch(`${API_BASE}/debug/last`);
       const d = await res.json();
       if (!d.question) {
-        debugPanel.textContent = "Send a message to see retrieval pipeline.";
+        debugPanel.textContent = "Send a message to see the retrieval pipeline.";
         return;
       }
       debugPanel.innerHTML = `
-        <div><strong>Mode:</strong> ${d.mode}</div>
-        <div><strong>Question:</strong> ${d.question}</div>
-        <div><strong>History sent:</strong> ${d.history_count} messages</div>
+        <div><strong>Mode:</strong> ${escapeHtml(d.mode)}</div>
+        <div><strong>Question:</strong> ${escapeHtml(d.question)}</div>
+        <div><strong>History sent:</strong> ${escapeHtml(String(d.history_count))} messages</div>
         <div><strong>Memories:</strong> ${(d.memories_used || []).length}</div>
         <div><strong>Chunks retrieved:</strong></div>
-        <ul>${(d.retrieved_chunks || []).map((c) => `<li>Page ${c.page} · score ${c.score}</li>`).join("") || "<li>none</li>"}</ul>
+        <ul>${(d.retrieved_chunks || []).map((c) =>
+          `<li>Page ${escapeHtml(String(c.page))} · score ${escapeHtml(String(c.score))}</li>`
+        ).join("") || "<li>none</li>"}</ul>
       `;
     }
 
+    function openModal(id) {
+      document.getElementById(id).hidden = false;
+      backdrop.hidden = false;
+    }
+
+    function closeModals() {
+      document.getElementById("memory-modal").hidden = true;
+      document.getElementById("debug-modal").hidden = true;
+      backdrop.hidden = true;
+      sidebar.classList.remove("open");
+      sourcesPanel.classList.remove("open");
+    }
+
+    document.getElementById("memory-btn").addEventListener("click", () => openModal("memory-modal"));
+    document.getElementById("debug-btn").addEventListener("click", () => {
+      loadDebug();
+      openModal("debug-modal");
+    });
+    document.getElementById("memory-close").addEventListener("click", closeModals);
+    document.getElementById("debug-close").addEventListener("click", closeModals);
+    backdrop.addEventListener("click", closeModals);
+
+    document.getElementById("sidebar-open").addEventListener("click", () => {
+      sidebar.classList.add("open");
+      backdrop.hidden = false;
+    });
+    document.getElementById("sidebar-close").addEventListener("click", closeModals);
+    document.getElementById("sources-open").addEventListener("click", () => {
+      sourcesPanel.classList.add("open");
+      backdrop.hidden = false;
+    });
+    document.getElementById("sources-close").addEventListener("click", closeModals);
+
     uploadBtn.addEventListener("click", () => pdfUpload.click());
+    docSearch.addEventListener("input", () => renderDocList(documentsCache));
 
     pdfUpload.addEventListener("change", async () => {
       const file = pdfUpload.files[0];
       if (!file) return;
       uploadBtn.disabled = true;
-      uploadBtn.textContent = "Processing… (1–3 min for large PDFs)";
+      uploadBtn.textContent = "Processing… (1–3 min)";
       try {
         const formData = new FormData();
         formData.append("file", file);
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 300000); // 5 min for large PDFs
+        const timeout = setTimeout(() => controller.abort(), 300000);
         const res = await fetch(`${API_BASE}/documents/upload`, {
           method: "POST",
           body: formData,
@@ -273,7 +537,6 @@
         if (!res.ok) throw new Error(data.detail || `Upload failed (${res.status})`);
         selectedDocumentId = data.document_id;
         localStorage.setItem("genrag_document_id", data.document_id);
-        activeDocLabel.textContent = data.filename;
         addMessage("system", `Uploaded "${data.filename}" — ${data.chunk_count} chunks from ${data.page_count} pages.`);
         await loadDocuments();
       } catch (e) {
@@ -283,13 +546,13 @@
         addMessage("error", msg);
       } finally {
         uploadBtn.disabled = false;
-        uploadBtn.textContent = "Upload PDF";
+        uploadBtn.textContent = "+ Add document";
         pdfUpload.value = "";
       }
     });
 
-    modeList.querySelectorAll("li").forEach((li) => {
-      li.addEventListener("click", () => setMode(li.dataset.mode));
+    modeList.querySelectorAll(".mode-card").forEach((btn) => {
+      btn.addEventListener("click", () => setMode(btn.dataset.mode));
     });
 
     form.addEventListener("submit", async (e) => {
@@ -326,6 +589,7 @@
           meta = "Sources: Pages " + data.sources[0].pages.join(", ");
         }
         addMessage("assistant", data.reply, meta);
+        renderSources(data);
 
         if (data.memory_saved) {
           addMessage("system", `Memory saved: ${data.memory_saved.text}`);
@@ -343,6 +607,7 @@
     newChatBtn.addEventListener("click", startNewChat);
 
     setMode(currentMode);
+    showEmptyState();
     loadDocuments();
     loadMemories();
   </script>
