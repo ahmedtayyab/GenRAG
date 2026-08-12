@@ -208,13 +208,41 @@ input {
   overflow-y: auto;
 }
 
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.section-head h2 {
+  margin-bottom: 0;
+}
+
+.clear-docs-btn {
+  font-size: 12px;
+  padding: 0;
+}
+
 .doc-item {
   display: flex;
   align-items: flex-start;
-  gap: 6px;
+  gap: 8px;
   padding: 8px 8px;
   border-radius: var(--radius-sm);
   border: 1px solid transparent;
+}
+
+.doc-check {
+  margin-top: 3px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.clear-all-chip {
+  cursor: pointer;
 }
 
 .doc-item:hover {

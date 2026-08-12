@@ -49,11 +49,13 @@ def init_db() -> None:
                 page_count INTEGER DEFAULT 0,
                 chunk_count INTEGER DEFAULT 0,
                 extracted_preview TEXT,
+                content_hash TEXT,
                 created_at TEXT DEFAULT (datetime('now'))
             );
             """
         )
         _migrate_conversations(conn)
+        _migrate_documents(conn)
 
 
 def _migrate_conversations(conn: sqlite3.Connection) -> None:
@@ -65,6 +67,15 @@ def _migrate_conversations(conn: sqlite3.Connection) -> None:
         conn.execute(
             "UPDATE conversations SET updated_at = COALESCE(created_at, datetime('now')) WHERE updated_at IS NULL"
         )
+
+
+def _migrate_documents(conn: sqlite3.Connection) -> None:
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(documents)").fetchall()}
+    if "content_hash" not in cols:
+        conn.execute("ALTER TABLE documents ADD COLUMN content_hash TEXT")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_documents_content_hash ON documents(content_hash)"
+    )
 
 
 def ensure_conversation(conversation_id: str) -> None:
@@ -211,21 +222,33 @@ def delete_memory(mem_id: str) -> bool:
         return cur.rowcount > 0
 
 
-def save_document(doc_id: str, filename: str, page_count: int, chunk_count: int, preview: str) -> None:
+def save_document(
+    doc_id: str,
+    filename: str,
+    page_count: int,
+    chunk_count: int,
+    preview: str,
+    content_hash: str | None = None,
+) -> None:
     with get_connection() as conn:
         conn.execute(
             """
-            INSERT OR REPLACE INTO documents (id, filename, page_count, chunk_count, extracted_preview)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO documents
+                (id, filename, page_count, chunk_count, extracted_preview, content_hash)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (doc_id, filename, page_count, chunk_count, preview[:2000]),
+            (doc_id, filename, page_count, chunk_count, preview[:2000], content_hash),
         )
 
 
 def list_documents() -> list[dict]:
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT id, filename, page_count, chunk_count, created_at FROM documents ORDER BY created_at DESC"
+            """
+            SELECT id, filename, page_count, chunk_count, content_hash, created_at
+            FROM documents
+            ORDER BY created_at DESC
+            """
         ).fetchall()
     return [dict(row) for row in rows]
 
@@ -233,8 +256,28 @@ def list_documents() -> list[dict]:
 def get_document(doc_id: str) -> dict | None:
     with get_connection() as conn:
         row = conn.execute(
-            "SELECT id, filename, page_count, chunk_count, extracted_preview, created_at FROM documents WHERE id = ?",
+            """
+            SELECT id, filename, page_count, chunk_count, extracted_preview, content_hash, created_at
+            FROM documents WHERE id = ?
+            """,
             (doc_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def get_document_by_hash(content_hash: str) -> dict | None:
+    if not content_hash:
+        return None
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT id, filename, page_count, chunk_count, extracted_preview, content_hash, created_at
+            FROM documents
+            WHERE content_hash = ?
+            ORDER BY created_at ASC
+            LIMIT 1
+            """,
+            (content_hash,),
         ).fetchone()
     return dict(row) if row else None
 

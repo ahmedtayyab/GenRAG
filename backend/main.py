@@ -1,5 +1,6 @@
 # GenRAG API — full pipeline: upload → chunk → embed → retrieve → generate
 
+import hashlib
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
@@ -17,6 +18,7 @@ from database import (
     delete_document,
     get_conversation,
     get_document,
+    get_document_by_hash,
     get_full_history,
     get_recent_history,
     init_db,
@@ -55,7 +57,8 @@ app.add_middleware(
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1)
     conversation_id: str | None = None
-    document_id: str | None = None  # which uploaded PDF to search (RAG)
+    document_id: str | None = None  # backward compatible single selection
+    document_ids: list[str] | None = None  # multi-document RAG
     mode: str = "chat"  # chat | learning | interview
 
 
@@ -67,6 +70,22 @@ class ChatResponse(BaseModel):
     retrieved_chunks: list = []
     memories_used: list = []
     memory_saved: dict | None = None
+
+
+def _resolve_document_ids(request: ChatRequest) -> list[str]:
+    ids: list[str] = []
+    if request.document_ids:
+        ids.extend(request.document_ids)
+    if request.document_id:
+        ids.append(request.document_id)
+    # preserve order, drop empties/duplicates
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for doc_id in ids:
+        if doc_id and doc_id not in seen:
+            seen.add(doc_id)
+            ordered.append(doc_id)
+    return ordered
 
 
 @app.get("/health")
@@ -82,6 +101,19 @@ async def upload_document(file: UploadFile = File(...)):
     file_bytes = await file.read()
     if len(file_bytes) > 20 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File too large (max 20 MB).")
+
+    content_hash = hashlib.sha256(file_bytes).hexdigest()
+    existing = get_document_by_hash(content_hash)
+    if existing:
+        return {
+            "document_id": existing["id"],
+            "filename": existing["filename"],
+            "page_count": existing["page_count"],
+            "chunk_count": existing["chunk_count"],
+            "preview": existing.get("extracted_preview") or "",
+            "already_exists": True,
+            "message": "This exact file was already uploaded. Reusing existing embeddings.",
+        }
 
     try:
         document_id = str(uuid4())
@@ -99,7 +131,14 @@ async def upload_document(file: UploadFile = File(...)):
         ]
         save_document_vectors(document_id, file.filename, stored)
         preview = "\n\n".join(p.text[:200] for p in pages[:3])
-        save_document(document_id, file.filename, len(pages), len(chunks), preview)
+        save_document(
+            document_id,
+            file.filename,
+            len(pages),
+            len(chunks),
+            preview,
+            content_hash=content_hash,
+        )
 
         return {
             "document_id": document_id,
@@ -107,6 +146,7 @@ async def upload_document(file: UploadFile = File(...)):
             "page_count": len(pages),
             "chunk_count": len(chunks),
             "preview": preview,
+            "already_exists": False,
         }
     except HTTPException:
         raise
@@ -144,7 +184,7 @@ def delete_memory_route(memory_id: str):
 
 @app.get("/debug/last")
 def debug_last():
-    return get_debug()  # shows last retrieval, prompt, scores — educational transparency
+    return get_debug()
 
 
 @app.get("/conversations")
@@ -174,17 +214,26 @@ def remove_conversation(conversation_id: str):
 def chat(request: ChatRequest):
     conversation_id = request.conversation_id or str(uuid4())
     mode = request.mode if request.mode in ("chat", "learning", "interview") else "chat"
+    document_ids = _resolve_document_ids(request)
 
-    if request.document_id and not get_document(request.document_id):
-        raise HTTPException(status_code=404, detail="Selected document not found. Upload a PDF first.")
+    filenames: dict[str, str] = {}
+    for doc_id in document_ids:
+        doc = get_document(doc_id)
+        if not doc:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Selected document not found: {doc_id}. Upload a PDF first.",
+            )
+        filenames[doc_id] = doc["filename"]
 
     try:
         history = get_recent_history(conversation_id)
-        result = build_rag_response(  # Phases 6–12: retrieve + prompt + generate
+        result = build_rag_response(
             user_message=request.message,
             history=history,
             mode=mode,
-            document_id=request.document_id,
+            document_ids=document_ids,
+            document_filenames=filenames,
         )
     except ValueError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -216,6 +265,5 @@ def chat(request: ChatRequest):
 
 @app.post("/chat/reset")
 def reset_chat(conversation_id: str):
-    # Kept for compatibility — prefer DELETE /conversations/{id} or starting a new id
     clear_conversation(conversation_id)
     return {"status": "ok", "conversation_id": conversation_id}

@@ -21,11 +21,13 @@
 
       <section class="sidebar-section">
         <div class="section-head">
-          <h2>Library</h2>
+          <h2>Documents</h2>
+          <button type="button" class="text-btn clear-docs-btn" id="clear-docs-btn">Clear</button>
         </div>
         <input type="search" id="doc-search" class="search-input" placeholder="Search documents…" autocomplete="off">
         <input type="file" id="pdf-upload" accept=".pdf" hidden>
         <button type="button" class="btn-secondary" id="upload-btn">+ Add document</button>
+        <p class="muted-note" id="selected-count">No documents selected</p>
         <ul id="doc-list" class="doc-list"></ul>
       </section>
 
@@ -149,7 +151,20 @@
 
     let conversationId = localStorage.getItem("genrag_conversation_id");
     let conversationTitle = localStorage.getItem("genrag_conversation_title") || "New chat";
-    let selectedDocumentId = localStorage.getItem("genrag_document_id");
+    let selectedDocumentIds = [];
+    try {
+      selectedDocumentIds = JSON.parse(localStorage.getItem("genrag_document_ids") || "[]");
+      if (!Array.isArray(selectedDocumentIds)) selectedDocumentIds = [];
+    } catch {
+      selectedDocumentIds = [];
+    }
+    // migrate old single-document key if present
+    const legacyDocId = localStorage.getItem("genrag_document_id");
+    if (legacyDocId && !selectedDocumentIds.includes(legacyDocId)) {
+      selectedDocumentIds.push(legacyDocId);
+      localStorage.setItem("genrag_document_ids", JSON.stringify(selectedDocumentIds));
+      localStorage.removeItem("genrag_document_id");
+    }
     let currentMode = localStorage.getItem("genrag_mode") || "chat";
     let documentsCache = [];
     let hasMessages = false;
@@ -218,32 +233,69 @@
         .replace(/\*(.+?)\*/g, "<em>$1</em>");
     }
 
-    function selectedDocument() {
-      return documentsCache.find((d) => d.id === selectedDocumentId) || null;
+    function persistSelectedDocs() {
+      localStorage.setItem("genrag_document_ids", JSON.stringify(selectedDocumentIds));
+    }
+
+    function selectedDocuments() {
+      return documentsCache.filter((d) => selectedDocumentIds.includes(d.id));
+    }
+
+    function updateSelectedCount() {
+      const el = document.getElementById("selected-count");
+      if (!el) return;
+      const n = selectedDocumentIds.length;
+      el.textContent = n === 0
+        ? "No documents selected"
+        : `${n} selected for this chat`;
     }
 
     function updateSelectedDocsChip() {
-      const doc = selectedDocument();
-      if (!doc) {
-        selectedDocsEl.innerHTML = `<span class="chip muted">No document selected — pick one from Library</span>`;
+      const docs = selectedDocuments();
+      updateSelectedCount();
+      if (!docs.length) {
+        selectedDocsEl.innerHTML = `<span class="chip muted">No documents selected — check docs in the sidebar</span>`;
         return;
       }
-      selectedDocsEl.innerHTML = `
-        <span class="chip">
+      selectedDocsEl.innerHTML = docs.map((doc) => `
+        <span class="chip" data-id="${escapeHtml(doc.id)}">
           <span class="chip-icon">📄</span>
           <span>${escapeHtml(shortName(doc.filename))}</span>
-          <button type="button" class="chip-x" id="clear-doc-btn" title="Deselect">×</button>
+          <button type="button" class="chip-x" title="Deselect">×</button>
         </span>
+      `).join("") + `
+        <button type="button" class="chip muted clear-all-chip" id="clear-all-chip">Clear all</button>
       `;
-      const clearBtn = document.getElementById("clear-doc-btn");
-      if (clearBtn) {
-        clearBtn.onclick = () => {
-          selectedDocumentId = null;
-          localStorage.removeItem("genrag_document_id");
+
+      selectedDocsEl.querySelectorAll(".chip[data-id]").forEach((chip) => {
+        const btn = chip.querySelector(".chip-x");
+        btn.onclick = () => {
+          selectedDocumentIds = selectedDocumentIds.filter((id) => id !== chip.dataset.id);
+          persistSelectedDocs();
           updateSelectedDocsChip();
-          loadDocuments();
+          renderDocList(documentsCache);
+        };
+      });
+      const clearAll = document.getElementById("clear-all-chip");
+      if (clearAll) {
+        clearAll.onclick = () => {
+          selectedDocumentIds = [];
+          persistSelectedDocs();
+          updateSelectedDocsChip();
+          renderDocList(documentsCache);
         };
       }
+    }
+
+    function toggleDocument(docId) {
+      if (selectedDocumentIds.includes(docId)) {
+        selectedDocumentIds = selectedDocumentIds.filter((id) => id !== docId);
+      } else {
+        selectedDocumentIds.push(docId);
+      }
+      persistSelectedDocs();
+      updateSelectedDocsChip();
+      renderDocList(documentsCache);
     }
 
     function showEmptyState() {
@@ -307,32 +359,38 @@
 
     function renderSources(data) {
       const chunks = data.retrieved_chunks || [];
-      const doc = selectedDocument();
-      const docName = doc ? shortName(doc.filename) : "Document";
+      const sources = data.sources || [];
 
-      if (!chunks.length) {
-        sourcesList.innerHTML = `<p class="muted-note">No retrieved chunks for this answer. Select a document and ask again.</p>`;
+      if (!chunks.length && !sources.length) {
+        sourcesList.innerHTML = `<p class="muted-note">No retrieved chunks for this answer. Select documents and ask again.</p>`;
         return;
       }
 
-      sourcesList.innerHTML = chunks.map((c, i) => `
+      const items = chunks.length ? chunks : sources;
+      sourcesList.innerHTML = items.map((c, i) => {
+        const name = shortName(c.filename || "Document");
+        const page = c.page;
+        const score = c.score;
+        const text = c.text || c.preview || "";
+        return `
         <article class="source-card" data-index="${i}">
-          <div class="source-title">📄 ${escapeHtml(docName)}</div>
-          <div class="source-page">Page ${escapeHtml(String(c.page))} · score ${escapeHtml(String(c.score))}</div>
-          <p class="source-preview">${escapeHtml((c.text || "").slice(0, 220))}${(c.text || "").length > 220 ? "…" : ""}</p>
-        </article>
-      `).join("");
+          <div class="source-title">📄 ${escapeHtml(name)}</div>
+          <div class="source-page">Page ${escapeHtml(String(page))}${score != null ? ` · score ${escapeHtml(String(score))}` : ""}</div>
+          <p class="source-preview">${escapeHtml(String(text).slice(0, 220))}${String(text).length > 220 ? "…" : ""}</p>
+        </article>`;
+      }).join("");
 
       sourcesList.querySelectorAll(".source-card").forEach((card) => {
         card.addEventListener("click", () => {
-          const chunk = chunks[Number(card.dataset.index)];
+          const chunk = items[Number(card.dataset.index)];
           if (!chunk) return;
           card.classList.toggle("expanded");
           const preview = card.querySelector(".source-preview");
+          const full = chunk.text || chunk.preview || "";
           if (card.classList.contains("expanded")) {
-            preview.textContent = chunk.text || "";
+            preview.textContent = full;
           } else {
-            preview.textContent = (chunk.text || "").slice(0, 220) + ((chunk.text || "").length > 220 ? "…" : "");
+            preview.textContent = String(full).slice(0, 220) + (String(full).length > 220 ? "…" : "");
           }
         });
       });
@@ -494,10 +552,8 @@
         addMessage("error", data.detail || "Could not remove document.");
         return;
       }
-      if (selectedDocumentId === docId) {
-        selectedDocumentId = null;
-        localStorage.removeItem("genrag_document_id");
-      }
+      selectedDocumentIds = selectedDocumentIds.filter((id) => id !== docId);
+      persistSelectedDocs();
       addMessage("system", `Removed "${filename}".`);
       await loadDocuments();
     }
@@ -513,21 +569,24 @@
       }
 
       filtered.forEach((doc) => {
+        const selected = selectedDocumentIds.includes(doc.id);
         const li = document.createElement("li");
-        li.className = "doc-item" + (doc.id === selectedDocumentId ? " selected" : "");
+        li.className = "doc-item" + (selected ? " selected" : "");
+
+        const check = document.createElement("input");
+        check.type = "checkbox";
+        check.className = "doc-check";
+        check.checked = selected;
+        check.title = "Use in this chat";
+        check.onchange = () => toggleDocument(doc.id);
 
         const info = document.createElement("div");
         info.className = "doc-info";
         info.innerHTML = `
           <div class="doc-name"><span class="doc-icon">📄</span> ${escapeHtml(shortName(doc.filename))}</div>
-          <small>${doc.chunk_count} chunks · ${doc.page_count} pages</small>
+          <small>${doc.page_count} pages · ${doc.chunk_count} chunks</small>
         `;
-        info.onclick = () => {
-          selectedDocumentId = doc.id;
-          localStorage.setItem("genrag_document_id", doc.id);
-          updateSelectedDocsChip();
-          loadDocuments();
-        };
+        info.onclick = () => toggleDocument(doc.id);
 
         const delBtn = document.createElement("button");
         delBtn.type = "button";
@@ -539,6 +598,7 @@
           deleteDocument(doc.id, doc.filename);
         };
 
+        li.appendChild(check);
         li.appendChild(info);
         li.appendChild(delBtn);
         docList.appendChild(li);
@@ -550,10 +610,9 @@
       const data = await res.json();
       documentsCache = data.documents || [];
 
-      if (selectedDocumentId && !documentsCache.find((d) => d.id === selectedDocumentId)) {
-        selectedDocumentId = null;
-        localStorage.removeItem("genrag_document_id");
-      }
+      const validIds = new Set(documentsCache.map((d) => d.id));
+      selectedDocumentIds = selectedDocumentIds.filter((id) => validIds.has(id));
+      persistSelectedDocs();
 
       renderDocList(documentsCache);
       updateSelectedDocsChip();
@@ -590,7 +649,7 @@
         <div><strong>Memories:</strong> ${(d.memories_used || []).length}</div>
         <div><strong>Chunks retrieved:</strong></div>
         <ul>${(d.retrieved_chunks || []).map((c) =>
-          `<li>Page ${escapeHtml(String(c.page))} · score ${escapeHtml(String(c.score))}</li>`
+          `<li>${escapeHtml(c.filename || "Document")} · page ${escapeHtml(String(c.page))} · score ${escapeHtml(String(c.score))}</li>`
         ).join("") || "<li>none</li>"}</ul>
       `;
     }
@@ -628,6 +687,13 @@
     });
     document.getElementById("sources-close").addEventListener("click", closeModals);
 
+    document.getElementById("clear-docs-btn").addEventListener("click", () => {
+      selectedDocumentIds = [];
+      persistSelectedDocs();
+      updateSelectedDocsChip();
+      renderDocList(documentsCache);
+    });
+
     uploadBtn.addEventListener("click", () => pdfUpload.click());
     docSearch.addEventListener("input", () => renderDocList(documentsCache));
 
@@ -635,7 +701,7 @@
       const file = pdfUpload.files[0];
       if (!file) return;
       uploadBtn.disabled = true;
-      uploadBtn.textContent = "Processing… (1–3 min)";
+      uploadBtn.textContent = "Processing…";
       try {
         const formData = new FormData();
         formData.append("file", file);
@@ -654,9 +720,17 @@
           throw new Error(`Server error (${res.status}). Check backend terminal.`);
         }
         if (!res.ok) throw new Error(data.detail || `Upload failed (${res.status})`);
-        selectedDocumentId = data.document_id;
-        localStorage.setItem("genrag_document_id", data.document_id);
-        addMessage("system", `Uploaded "${data.filename}" — ${data.chunk_count} chunks from ${data.page_count} pages.`);
+
+        if (!selectedDocumentIds.includes(data.document_id)) {
+          selectedDocumentIds.push(data.document_id);
+          persistSelectedDocs();
+        }
+
+        if (data.already_exists) {
+          addMessage("system", `Already in library: "${data.filename}". Reusing existing embeddings (no re-processing).`);
+        } else {
+          addMessage("system", `Uploaded "${data.filename}" — ${data.chunk_count} chunks from ${data.page_count} pages.`);
+        }
         await loadDocuments();
       } catch (e) {
         const msg = e.name === "AbortError"
@@ -690,7 +764,7 @@
           body: JSON.stringify({
             message: text,
             conversation_id: conversationId,
-            document_id: selectedDocumentId,
+            document_ids: selectedDocumentIds,
             mode: currentMode,
           }),
         });
@@ -706,8 +780,11 @@
         loadConversations();
 
         let meta = "";
-        if (data.sources && data.sources.length && data.sources[0].pages) {
-          meta = "Sources: Pages " + data.sources[0].pages.join(", ");
+        if (data.sources && data.sources.length) {
+          const labels = data.sources.map((s) =>
+            `${shortName(s.filename || "Document")} p.${s.page}`
+          );
+          meta = "Sources: " + labels.join(" · ");
         }
         addMessage("assistant", data.reply, meta);
         renderSources(data);

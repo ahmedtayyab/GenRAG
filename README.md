@@ -1,17 +1,100 @@
 # GenRAG
 
-**General document learning assistant** — upload PDFs, ask questions with RAG, study with memory, Learning Mode, and Interview Mode.
+A RAG-based chatbot that lets you upload PDFs and ask questions about them — with multi-document chat, persistent library, Learning/Interview modes, and source citations.
 
-## Features (complete)
+## What GenRAG is
 
-- PDF upload and text extraction
+GenRAG is a local **document learning workspace**:
+
+- Upload PDFs into a persistent **document library**
+- Select one or more documents for a chat
+- Ask questions grounded in retrieved chunks
+- See **sources** (filename + page)
+- Keep separate **chat history** without re-uploading documents
+
+## Current architecture
+
+```
+PDF
+ → text extraction (pypdf)
+ → chunking (1500 chars / 150 overlap)
+ → batched embeddings (Gemini gemini-embedding-001)
+ → ChromaDB (one collection per document)
+ → retrieval (cosine similarity across selected docs)
+ → Gemini chat (gemini-3.5-flash)
+ → answer + sources
+```
+
+### Architecture after improvements
+
+```
+Document Library
+      ↓
+PDF Upload (+ SHA-256 dedup)
+      ↓
+Text Extraction
+      ↓
+Chunking
+      ↓
+Batched Embeddings
+      ↓
+ChromaDB
+      ↓
+User Question
+      ↓
+Query Embedding (once)
+      ↓
+Selected Documents
+      ↓
+Similarity Search (per collection)
+      ↓
+Combined / ranked chunks
+      ↓
+Conversation History + RAG Context
+      ↓
+Gemini
+      ↓
+Answer + Sources
+```
+
+## Improvements made
+
+- **Batched embedding requests** — many chunks per API call instead of one call per chunk
+- **Multi-document chat** — select multiple PDFs; one query embedding searches all selected collections
+- **Content-hash deduplication** — uploading the exact same PDF reuses existing embeddings
+- **Improved document library** — checkboxes, search, clear selection, selected-count
+- **Improved sources** — filename + page in the Sources panel and message meta
+- **Fewer Gemini calls for titles** — titles from the first message text (no extra chat API call)
+
+## Challenges encountered
+
+Practical issues found while building this:
+
+1. **Gemini embedding rate limits** — free-tier RPM made large PDFs fail when every chunk was a separate request
+2. **One-request-per-chunk embedding** — a 100-page PDF could mean 200–300 API calls and long waits
+3. **Duplicate uploads** — same file uploaded twice previously re-embedded everything
+4. **Multiple documents in one conversation** — needed multi-select + merged retrieval without merging collections
+5. **Document-to-chunk relationships** — keep one Chroma collection per document with filename/page metadata
+6. **Combining multi-collection results** — search each collection, then rank by similarity score
+7. **Source/page citations** — preserve filename + page through retrieval into the UI
+8. **History vs document context** — chat messages stay in SQLite; document vectors stay in Chroma; both are injected into the prompt separately
+
+## Why these changes were made
+
+To keep GenRAG usable on Gemini free tier, avoid wasted embedding quota, and make the product feel like a real study workspace where documents persist and chats can use several of them at once.
+
+## Features
+
+- PDF upload + text extraction
 - Chunking with overlap
-- Gemini embeddings + Chroma vector search (cosine similarity)
-- ChromaDB for persistent local vector storage
-- Source citations (page numbers)
-- User memory (rule-based extract + keyword retrieval)
+- Batched Gemini embeddings + Chroma cosine search
+- Multi-document selection per chat
+- SHA-256 upload deduplication
+- Source citations (filename + page)
+- User memory (rule-based)
 - Modes: **Chat**, **Learning**, **Interview**
-- Debug panel showing retrieved chunks and scores
+- Persistent chat history with titles
+- Debug panel for retrieval transparency
 
 ## Quick start
 
@@ -24,12 +107,14 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Create `.env` in project root:
+Create `.env` in the project root:
 
 ```env
 GEMINI_API_KEY=AIza-your-key-here
 GEMINI_MODEL=gemini-3.5-flash
-GEMINI_EMBED_MODEL=text-embedding-004
+GEMINI_EMBED_MODEL=gemini-embedding-001
+EMBED_BATCH_SIZE=16
+EMBED_REQUEST_DELAY=0.7
 ```
 
 ```powershell
@@ -47,25 +132,25 @@ Open http://localhost:5500
 
 ### 3. Try it
 
-1. Upload your study PDF (e.g. AI Assistant Infrastructure)
-2. Click the document in the sidebar to select it
-3. Ask: "How does conversation history work?"
-4. Switch to **Learning** or **Interview** mode
-5. Say: "Remember that my interview is on Friday"
-6. Check the **Debug** panel for retrieved chunks and scores
+1. Upload one or more PDFs
+2. Check the documents you want for this chat
+3. Ask a question that spans the selected material
+4. Check **Sources** for filename + page
+5. Start a **New chat** — documents stay in the library (not re-embedded)
 
 ## API overview
 
 | Endpoint | Purpose |
 |----------|---------|
-| `POST /documents/upload` | Upload PDF → chunk → embed → store |
-| `GET /documents` | List uploaded documents |
-| `DELETE /documents/{id}` | Remove document and vectors |
-| `POST /chat` | RAG chat (mode: chat, learning, interview) |
-| `POST /chat/reset` | Clear conversation history |
-| `GET /memories` | List user memories |
-| `DELETE /memories/{id}` | Remove a memory |
-| `GET /debug/last` | Last retrieval pipeline snapshot |
+| `POST /documents/upload` | Upload PDF (or reuse if hash exists) |
+| `GET /documents` | List library documents |
+| `DELETE /documents/{id}` | Remove document + vectors |
+| `POST /chat` | Chat (`document_ids` for multi-doc RAG) |
+| `GET /conversations` | List saved chats |
+| `GET /conversations/{id}` | Load chat messages |
+| `DELETE /conversations/{id}` | Delete a chat |
+| `GET /memories` | List memories |
+| `GET /debug/last` | Last retrieval snapshot |
 
 ## Project structure
 
@@ -74,16 +159,16 @@ backend/
   main.py          # API routes
   ingestion.py     # PDF → text
   chunking.py      # text → chunks
-  embeddings.py    # text → vectors (Gemini)
-  vector_store.py  # Chroma store + similarity search
-  memory.py        # user memory extract/retrieve
-  rag.py           # prompt construction + modes
+  embeddings.py    # batched Gemini embeddings
+  vector_store.py  # Chroma store + multi-doc search
+  memory.py        # user memory
+  rag.py           # retrieval + prompt + modes
   llm.py           # Gemini chat
-  database.py      # SQLite
+  database.py      # SQLite (+ content_hash)
 frontend/
-  index.html       # UI
+  index.html
   style.css
-data/              # genrag.db, chroma (local, gitignored)
+data/              # genrag.db, chroma (gitignored)
 ```
 
 ## Author

@@ -1,8 +1,9 @@
 # Store embeddings + search via Chroma (Phases 5 & 6)
 
-import chromadb
 from dataclasses import dataclass
 from pathlib import Path
+
+import chromadb
 
 @dataclass
 class StoredChunk:
@@ -18,6 +19,8 @@ class SearchResult:
     text: str
     page: int
     score: float  # cosine similarity 0-1, higher = more relevant
+    document_id: str = ""
+    filename: str = ""
 
 
 CHROMA_DIR = Path(__file__).resolve().parent.parent / "data" / "chroma"
@@ -34,7 +37,6 @@ def _get_client() -> chromadb.ClientAPI:
 
 
 def _collection_name(document_id: str) -> str:
-    # Chroma names: 3–63 chars, alphanumeric + underscores/hyphens
     return f"doc_{document_id.replace('-', '_')}"
 
 
@@ -56,7 +58,10 @@ def save_document_vectors(document_id: str, filename: str, chunks: list[StoredCh
         ids=[f"{document_id}_{c.index}" for c in chunks],
         embeddings=[c.vector for c in chunks],
         documents=[c.text for c in chunks],
-        metadatas=[{"index": c.index, "page": c.page} for c in chunks],
+        metadatas=[
+            {"index": c.index, "page": c.page, "document_id": document_id, "filename": filename}
+            for c in chunks
+        ],
     )
     return CHROMA_DIR
 
@@ -71,13 +76,16 @@ def delete_document_vectors(document_id: str) -> bool:
         return False
 
 
-def search(document_id: str, query_vector: list[float], top_k: int = 3) -> list[SearchResult]:
+def search(document_id: str, query_vector: list[float], top_k: int = 3, filename: str = "") -> list[SearchResult]:
     client = _get_client()
     name = _collection_name(document_id)
     try:
         collection = client.get_collection(name)
     except Exception:
         return []
+
+    collection_meta = collection.metadata or {}
+    fallback_name = filename or collection_meta.get("filename") or "Document"
 
     results = collection.query(
         query_embeddings=[query_vector],
@@ -90,17 +98,45 @@ def search(document_id: str, query_vector: list[float], top_k: int = 3) -> list[
 
     scored: list[SearchResult] = []
     for i in range(len(results["ids"][0])):
-        meta = results["metadatas"][0][i]
+        meta = results["metadatas"][0][i] or {}
         distance = results["distances"][0][i]
-        # cosine distance ≈ 1 - cosine_similarity for normalized vectors
         score = max(0.0, 1.0 - distance) if distance is not None else 0.0
         scored.append(
             SearchResult(
-                index=meta["index"],
+                index=meta.get("index", i),
                 text=results["documents"][0][i],
-                page=meta["page"],
+                page=meta.get("page", 1),
                 score=round(score, 4),
+                document_id=meta.get("document_id") or document_id,
+                filename=meta.get("filename") or fallback_name,
             )
         )
 
     return scored
+
+
+def search_documents(
+    document_ids: list[str],
+    query_vector: list[float],
+    filenames: dict[str, str] | None = None,
+    top_k_per_doc: int = 3,
+    final_top_k: int = 6,
+) -> list[SearchResult]:
+    """Search each selected document collection, then merge and rank by score."""
+    filenames = filenames or {}
+    combined: list[SearchResult] = []
+
+    for doc_id in document_ids:
+        if not doc_id:
+            continue
+        combined.extend(
+            search(
+                doc_id,
+                query_vector,
+                top_k=top_k_per_doc,
+                filename=filenames.get(doc_id, ""),
+            )
+        )
+
+    combined.sort(key=lambda r: r.score, reverse=True)
+    return combined[:final_top_k]

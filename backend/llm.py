@@ -42,33 +42,8 @@ def ask_llm_with_system(system_prompt: str, history: list[dict], user_message: s
 
 
 def generate_conversation_title(first_message: str) -> str:
-    """Short ChatGPT-style title from the first user message."""
-    fallback = _fallback_title(first_message)
-    try:
-        client = get_client()
-        response = client.chat.completions.create(
-            model=get_model(),
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "Create a short chat title like ChatGPT does. "
-                        "3 to 6 words. Title case. No quotes. No ending punctuation. "
-                        "Capture the topic, not the full question."
-                    ),
-                },
-                {"role": "user", "content": first_message[:500]},
-            ],
-            temperature=0.3,
-        )
-        title = (response.choices[0].message.content or "").strip()
-        title = title.strip("\"'`").rstrip(".!?:;")
-        title = " ".join(title.split())
-        if not title or len(title) > 60:
-            return fallback
-        return title
-    except Exception:
-        return fallback
+    """Short readable title from the first user message (no extra Gemini call)."""
+    return _fallback_title(first_message)
 
 
 def _fallback_title(text: str) -> str:
