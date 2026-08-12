@@ -2,7 +2,7 @@
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>GenRAG — Document Learning Workspace</title>
   <script>
     (function () {
@@ -94,7 +94,7 @@
           <p class="mode-hint" id="mode-hint">Ask questions about your documents.</p>
           <p class="doc-context-status" id="doc-context-status">No documents selected</p>
         </div>
-        <button type="button" class="icon-btn mobile-only" id="sources-open" aria-label="Open sources">☰ Sources</button>
+        <button type="button" class="header-action mobile-only" id="sources-open" aria-label="Open sources">Sources</button>
       </header>
 
       <div id="messages" class="messages"></div>
@@ -593,6 +593,7 @@
         });
       }
       await loadConversations();
+      closeDrawers();
     }
 
     async function deleteConversation(id, title) {
@@ -617,6 +618,7 @@
       setConversationTitle("New chat");
       debugPanel.textContent = "Send a message to see the retrieval pipeline.";
       sourcesList.innerHTML = `<p class="muted-note">Retrieved chunks from your documents will appear here after you ask a question.</p>`;
+      closeDrawers();
       showEmptyState();
       loadConversations();
     }
@@ -764,9 +766,27 @@
       `;
     }
 
+    function setDrawerOpen(open) {
+      document.body.classList.toggle("drawer-open", open);
+    }
+
+    function closeDrawers() {
+      sidebar.classList.remove("open");
+      sourcesPanel.classList.remove("open");
+      const modalOpen =
+        !document.getElementById("memory-modal").hidden ||
+        !document.getElementById("debug-modal").hidden;
+      if (!modalOpen) {
+        backdrop.hidden = true;
+        setDrawerOpen(false);
+      }
+    }
+
     function openModal(id) {
+      closeDrawers();
       document.getElementById(id).hidden = false;
       backdrop.hidden = false;
+      setDrawerOpen(true);
     }
 
     function closeModals() {
@@ -775,6 +795,7 @@
       backdrop.hidden = true;
       sidebar.classList.remove("open");
       sourcesPanel.classList.remove("open");
+      setDrawerOpen(false);
     }
 
     document.getElementById("memory-btn").addEventListener("click", () => openModal("memory-modal"));
@@ -787,15 +808,23 @@
     backdrop.addEventListener("click", closeModals);
 
     document.getElementById("sidebar-open").addEventListener("click", () => {
+      sourcesPanel.classList.remove("open");
       sidebar.classList.add("open");
       backdrop.hidden = false;
+      setDrawerOpen(true);
     });
     document.getElementById("sidebar-close").addEventListener("click", closeModals);
     document.getElementById("sources-open").addEventListener("click", () => {
+      sidebar.classList.remove("open");
       sourcesPanel.classList.add("open");
       backdrop.hidden = false;
+      setDrawerOpen(true);
     });
     document.getElementById("sources-close").addEventListener("click", closeModals);
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closeModals();
+    });
 
     document.getElementById("clear-docs-btn").addEventListener("click", () => {
       clearAllDocuments(true);
