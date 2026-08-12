@@ -14,6 +14,9 @@
       }
     })();
   </script>
+  <link rel="icon" type="image/png" href="assets/favicon.png">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <meta name="theme-color" content="#001B5E">
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
@@ -23,7 +26,10 @@
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-top">
         <div class="brand">
-          <h1>GenRAG</h1>
+          <a class="brand-link" href="/" aria-label="GenRAG home">
+            <img class="brand-logo brand-logo-light" src="assets/genrag-logo.png" alt="GenRAG">
+            <img class="brand-logo brand-logo-dark" src="assets/genrag-logo-dark.png" alt="GenRAG">
+          </a>
           <p>Document learning workspace</p>
         </div>
         <button type="button" class="icon-btn sidebar-close" id="sidebar-close" aria-label="Close sidebar">×</button>
@@ -83,7 +89,10 @@
       <header class="chat-header">
         <button type="button" class="icon-btn mobile-only" id="sidebar-open" aria-label="Open library">☰</button>
         <div class="chat-header-text">
-          <div class="breadcrumb">GenRAG / <span id="chat-title">Chat</span></div>
+          <div class="breadcrumb">
+            <img class="header-mark" src="assets/genrag-icon.png" alt="">
+            <span>GenRAG / <span id="chat-title">Chat</span></span>
+          </div>
           <p class="mode-hint" id="mode-hint">Ask questions about your documents.</p>
           <p class="doc-context-status" id="doc-context-status">No documents selected</p>
         </div>
