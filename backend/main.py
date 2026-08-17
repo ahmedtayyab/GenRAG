@@ -2,12 +2,18 @@
 
 import hashlib
 from contextlib import asynccontextmanager
+from pathlib import Path
 from uuid import uuid4
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+FRONTEND_DIR = ROOT_DIR / "frontend"
+load_dotenv(ROOT_DIR / ".env")
 
 from chunking import chunk_pages
 from database import (
@@ -34,8 +40,6 @@ from llm import generate_conversation_title
 from memory import list_memories, remove_memory
 from rag import build_rag_response
 from vector_store import StoredChunk, delete_document_vectors, has_document_vectors, save_document_vectors
-
-load_dotenv()
 
 
 @asynccontextmanager
@@ -294,3 +298,7 @@ def chat(request: ChatRequest):
 def reset_chat(conversation_id: str):
     clear_conversation(conversation_id)
     return {"status": "ok", "conversation_id": conversation_id}
+
+
+if FRONTEND_DIR.is_dir():
+    app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")

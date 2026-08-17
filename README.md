@@ -130,6 +130,8 @@ python -m http.server 5500
 
 Open http://localhost:5500
 
+Or open the UI from the API itself: http://localhost:8000
+
 ### 3. Try it
 
 1. Upload one or more PDFs
@@ -170,6 +172,35 @@ frontend/
   style.css
 data/              # genrag.db, chroma (gitignored)
 ```
+
+## Deploy (free)
+
+The app is one service: FastAPI serves the API **and** the frontend.
+
+**Limits of the free tier:** the instance sleeps after idle time (first load can take ~1 minute), and uploaded PDFs/chats live on ephemeral disk — they reset when the service restarts.
+
+### Render
+
+1. Push this repo to GitHub
+2. Open [Render](https://render.com) → **New** → **Web Service** → connect the repo
+3. Settings:
+   - **Runtime:** Docker
+   - **Instance type:** Free
+   - **Health check path:** `/health`
+4. Add environment variable:
+   - `GEMINI_API_KEY` = your key from [Google AI Studio](https://aistudio.google.com/apikey)
+5. Deploy. Your public URL is the whole app (no separate frontend host)
+
+Optional: **New** → **Blueprint** and select this repo (`render.yaml`).
+
+### Local check before deploy
+
+```powershell
+cd backend
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Open http://localhost:8000 — you should see the GenRAG UI.
 
 ## Author
 

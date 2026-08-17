@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: genrag
+    runtime: docker
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash
+      - key: GEMINI_EMBED_MODEL
+        value: gemini-embedding-001
+      - key: EMBED_BATCH_SIZE
+        value: "16"
+      - key: EMBED_REQUEST_DELAY
+        value: "0.7"

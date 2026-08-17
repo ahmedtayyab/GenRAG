@@ -143,7 +143,11 @@
   </div>
 
   <script>
-    const API_BASE = "http://localhost:8000";
+    const API_BASE =
+      (location.hostname === "localhost" || location.hostname === "127.0.0.1")
+      && location.port !== "8000"
+        ? "http://localhost:8000"
+        : "";
 
     const messagesEl = document.getElementById("messages");
     const form = document.getElementById("chat-form");
@@ -936,7 +940,7 @@
         loadDebug();
       } catch {
         hideGenerating();
-        addMessage("error", "Cannot reach backend. Is uvicorn running on port 8000?");
+        addMessage("error", "Cannot reach the API. If you are running locally, start the backend on port 8000.");
       } finally {
         hideGenerating();
         sendBtn.disabled = false;
