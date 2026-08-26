@@ -460,54 +460,16 @@ input {
   padding: 12px 8px 4px;
 }
 
-.mode-section {
-  flex: 0 0 auto;
-}
-
-.mode-cards {
+.chats-section {
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
-  margin-top: 8px;
 }
 
-.mode-card {
-  text-align: left;
-  border: 1px solid transparent;
-  background: transparent;
-  border-radius: var(--radius-sm);
-  padding: 8px 10px;
-  cursor: pointer;
-  transition: background 0.12s ease;
-}
-
-.mode-card strong {
-  display: block;
-  font-size: 12.5px;
-  font-weight: 550;
-  color: var(--ink);
-  margin-bottom: 1px;
-}
-
-.mode-card span {
-  display: block;
-  font-size: 11.5px;
-  color: var(--faint);
-  line-height: 1.35;
-}
-
-.mode-card:hover {
-  background: var(--bg);
-}
-
-.mode-card.active {
-  border-color: transparent;
-  background: var(--accent-soft);
-  box-shadow: inset 2px 0 0 var(--accent);
-}
-
-.mode-card.active strong {
-  color: var(--accent-ink);
+.chats-section .chat-history {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .sidebar-footer {
@@ -772,41 +734,92 @@ input {
 }
 
 .message.assistant .message-body {
-  font-size: 15px;
-  line-height: 1.72;
+  font-size: 15.5px;
+  line-height: 1.75;
   color: var(--ink);
   font-weight: 400;
+  letter-spacing: -0.005em;
 }
 
 .message.assistant .message-body h2,
 .message.assistant .message-body h3 {
-  margin: 1.15em 0 0.4em;
+  margin: 1.25em 0 0.45em;
   line-height: 1.35;
   color: var(--ink);
   font-weight: 600;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.02em;
 }
 
-.message.assistant .message-body h2 { font-size: 1.1em; }
-.message.assistant .message-body h3 { font-size: 1.02em; }
+.message.assistant .message-body h2 { font-size: 1.12em; }
+.message.assistant .message-body h3 { font-size: 1.04em; }
 
 .message.assistant .message-body h2:first-child,
 .message.assistant .message-body h3:first-child,
-.message.assistant .message-body p:first-child {
+.message.assistant .message-body p:first-child,
+.message.assistant .message-body ul:first-child,
+.message.assistant .message-body ol:first-child {
   margin-top: 0;
 }
 
 .message.assistant .message-body p {
-  margin: 0.7em 0;
+  margin: 0 0 0.85em;
+}
+
+.message.assistant .message-body p:last-child {
+  margin-bottom: 0;
 }
 
 .message.assistant .message-body ul,
 .message.assistant .message-body ol {
-  margin: 0.6em 0 0.6em 1.25em;
+  margin: 0.35em 0 0.95em;
+  padding-left: 1.35em;
 }
 
 .message.assistant .message-body li {
   margin: 0.35em 0;
+  padding-left: 0.15em;
+}
+
+.message.assistant .message-body li::marker {
+  color: var(--muted);
+}
+
+.message.assistant .message-body strong {
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.message.assistant .message-body a {
+  color: var(--accent-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.message.assistant .message-body blockquote {
+  margin: 0.9em 0;
+  padding: 0.15em 0 0.15em 14px;
+  border-left: 3px solid var(--accent-border);
+  color: var(--muted);
+}
+
+.message.assistant .message-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.9em 0 1em;
+  font-size: 0.92em;
+}
+
+.message.assistant .message-body th,
+.message.assistant .message-body td {
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.message.assistant .message-body th {
+  background: var(--bg);
+  font-weight: 600;
 }
 
 .message.assistant .message-body code {
@@ -825,7 +838,7 @@ input {
   border-radius: var(--radius-sm);
   padding: 14px 16px;
   overflow-x: auto;
-  margin: 0.9em 0;
+  margin: 0.9em 0 1.05em;
   font-size: 12.5px;
   line-height: 1.55;
 }
@@ -840,12 +853,12 @@ input {
 .message.assistant .message-body hr {
   border: none;
   border-top: 1px solid var(--line);
-  margin: 1.15em 0;
+  margin: 1.25em 0;
 }
 
 /* ── Composer ── */
 .composer {
-  padding: 12px max(28px, calc((100% - var(--content-max)) / 2)) 22px;
+  padding: 10px max(28px, calc((100% - var(--content-max)) / 2)) 20px;
   background: transparent;
   border-top: 1px solid var(--line);
   flex-shrink: 0;
@@ -894,60 +907,174 @@ input {
   color: var(--error);
 }
 
-.input-area {
-  display: flex;
-  gap: 8px;
-  align-items: stretch;
-}
-
-.input-area input {
-  flex: 1;
-  min-width: 0;
-  height: 46px;
-  padding: 0 16px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
+.composer-box {
+  border: 1px solid var(--line-strong);
+  border-radius: 16px;
   background: var(--surface);
-  color: var(--ink);
-  font-size: 15px;
+  padding: 8px 10px 10px;
+  box-shadow: var(--shadow);
   transition: border-color 0.12s ease, box-shadow 0.12s ease;
 }
 
-.input-area input:focus {
-  outline: none;
+.composer-box:focus-within {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
-.input-area input::placeholder {
+.composer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  padding: 0 2px;
+}
+
+.mode-picker {
+  position: relative;
+}
+
+.mode-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.mode-trigger:hover,
+.mode-picker.open .mode-trigger {
+  border-color: var(--line-strong);
+  background: var(--surface);
+}
+
+.mode-chevron {
+  opacity: 0.7;
+  transition: transform 0.15s ease;
+}
+
+.mode-picker.open .mode-chevron {
+  transform: rotate(180deg);
+}
+
+.mode-menu {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 30;
+  width: min(260px, 78vw);
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mode-menu[hidden] {
+  display: none !important;
+}
+
+.mode-option {
+  text-align: left;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  padding: 9px 10px;
+  cursor: pointer;
+  color: var(--ink);
+}
+
+.mode-option:hover {
+  background: var(--bg);
+}
+
+.mode-option.active {
+  background: var(--accent-soft);
+}
+
+.mode-option strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.mode-option span {
+  display: block;
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.mode-option.active strong {
+  color: var(--accent-ink);
+}
+
+.composer-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.composer-row input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.composer-row input:focus {
+  outline: none;
+}
+
+.composer-row input::placeholder {
   color: var(--faint);
 }
 
-.input-area button {
-  height: 46px;
-  min-width: 80px;
-  padding: 0 18px;
+.composer-row #send-btn {
+  width: 38px;
+  height: 38px;
+  min-width: 38px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: 999px;
   background: var(--accent);
   color: var(--user-ink);
-  font-weight: 550;
-  font-size: 13.5px;
   cursor: pointer;
-  transition: opacity 0.12s ease, background 0.12s ease;
+  transition: opacity 0.12s ease, background 0.12s ease, transform 0.12s ease;
 }
 
-.input-area button:hover {
+.composer-row #send-btn:hover {
   background: #6a8bc4;
+  transform: translateY(-1px);
 }
 
-[data-theme="light"] .input-area button:hover {
+[data-theme="light"] .composer-row #send-btn:hover {
   background: #243968;
 }
 
-.input-area button:disabled {
+.composer-row #send-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+  transform: none;
 }
 
 /* ── Sources panel ── */
@@ -992,56 +1119,55 @@ input {
 }
 
 .source-card {
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  padding: 10px 10px;
-  background: transparent;
-  cursor: pointer;
-  transition: background 0.12s ease;
-}
-
-.source-card:hover,
-.source-card.expanded {
-  border-color: transparent;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 12px;
   background: var(--bg);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
 }
 
-.source-card.expanded {
-  background: var(--accent-soft);
+.source-card:hover {
+  border-color: var(--line-strong);
+  background: var(--surface);
 }
 
 .source-title {
   font-size: 12.5px;
-  font-weight: 550;
+  font-weight: 600;
   color: var(--ink);
   margin-bottom: 3px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  letter-spacing: -0.01em;
 }
 
 .source-page {
   font-size: 11px;
   color: var(--faint);
-  font-weight: 500;
-  margin-bottom: 6px;
-  letter-spacing: 0.01em;
+  margin-bottom: 8px;
+  font-variant-numeric: tabular-nums;
 }
 
 .source-preview {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--muted);
-  line-height: 1.45;
+  line-height: 1.5;
   white-space: pre-wrap;
+  word-break: break-word;
   display: -webkit-box;
   -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
+.source-card.expanded {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+
 .source-card.expanded .source-preview {
   display: block;
   -webkit-line-clamp: unset;
+  overflow: visible;
 }
 
 /* ── Modals ── */
@@ -1317,20 +1443,19 @@ body.drawer-open {
     min-width: 0;
   }
 
-  .input-area {
+  .composer-row {
     gap: 6px;
   }
 
-  .input-area input {
+  .composer-row input {
     font-size: 16px;
-    height: 44px;
+    height: 42px;
   }
 
-  .input-area button {
-    min-width: 72px;
-    padding: 0 12px;
-    flex-shrink: 0;
-    height: 44px;
+  .composer-row #send-btn {
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
   }
 
   .message.user {
@@ -1383,14 +1508,14 @@ body.drawer-open {
     padding: 8px 12px calc(10px + env(safe-area-inset-bottom));
   }
 
-  .input-area input,
-  .input-area button {
-    height: 42px;
+  .composer-row input {
+    height: 40px;
   }
 
-  .input-area button {
-    min-width: 64px;
-    font-size: 13px;
+  .composer-row #send-btn {
+    width: 38px;
+    height: 38px;
+    min-width: 38px;
   }
 
   .suggestion-row {
