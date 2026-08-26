@@ -18,6 +18,10 @@
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
   <meta name="theme-color" content="#001B5E">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style-workspace.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script>
     window.__gisReady = new Promise(function (resolve) {
@@ -82,12 +86,12 @@
             <img class="brand-logo brand-logo-light" src="assets/genrag-logo.png" alt="GenRAG">
             <img class="brand-logo brand-logo-dark" src="assets/genrag-logo-dark.png" alt="GenRAG">
           </a>
-          <p>Document learning workspace</p>
+          <p>Understand documents with AI, backed by evidence</p>
         </div>
         <button type="button" class="icon-btn sidebar-close" id="sidebar-close" aria-label="Close sidebar">×</button>
       </div>
 
-      <section class="sidebar-section">
+      <section class="sidebar-section docs-section">
         <div class="section-head">
           <h2>Documents</h2>
           <button type="button" class="text-btn clear-docs-btn" id="clear-docs-btn">Clear</button>
@@ -137,15 +141,13 @@
     </aside>
 
     <main class="main">
-      <header class="chat-header">
+      <header class="chat-header workspace-header">
         <button type="button" class="icon-btn mobile-only" id="sidebar-open" aria-label="Open library">☰</button>
-        <div class="chat-header-text">
-          <div class="breadcrumb">
-            <img class="header-mark" src="assets/genrag-icon.png" alt="">
-            <span>GenRAG / <span id="chat-title">Chat</span></span>
-          </div>
-          <p class="mode-hint" id="mode-hint">Ask questions about your documents.</p>
-          <p class="doc-context-status" id="doc-context-status">No documents selected</p>
+        <div class="chat-header-text workspace-context" id="workspace-context">
+          <p class="workspace-kicker" id="mode-hint">Ask questions about your documents.</p>
+          <h1 class="workspace-title" id="workspace-doc-title">No document selected</h1>
+          <p class="workspace-meta" id="doc-context-status">Select a PDF to analyze with grounded AI answers</p>
+          <p class="workspace-chat-label">Chat · <span id="chat-title">New chat</span></p>
         </div>
         <button type="button" class="header-action mobile-only" id="sources-open" aria-label="Open sources">Sources</button>
       </header>
@@ -162,7 +164,7 @@
       <div id="messages" class="messages"></div>
 
       <div class="composer">
-        <div class="selected-docs" id="selected-docs"></div>
+        <div class="composer-context" id="selected-docs"></div>
         <form id="chat-form" class="composer-box">
           <div class="composer-toolbar">
             <div class="mode-picker" id="mode-picker">
@@ -189,7 +191,7 @@
             </div>
           </div>
           <div class="composer-row">
-            <input id="user-input" type="text" placeholder="Ask anything about your documents…" autocomplete="off" required>
+            <input id="user-input" type="text" placeholder="Ask about your documents…" autocomplete="off" required>
             <button type="submit" id="send-btn" aria-label="Send">
               <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
                 <path fill="currentColor" d="M3.4 20.6 21 12 3.4 3.4l-.1 6.8L14 12 3.3 13.8l.1 6.8Z"/>
@@ -202,11 +204,17 @@
 
     <aside class="sources-panel" id="sources-panel">
       <div class="sources-head">
-        <h2>Sources</h2>
+        <div>
+          <h2>Sources</h2>
+          <p class="sources-sub" id="sources-count">Evidence from your documents</p>
+        </div>
         <button type="button" class="icon-btn sources-close" id="sources-close" aria-label="Close sources">×</button>
       </div>
       <div id="sources-list" class="sources-list">
-        <p class="muted-note">Retrieved chunks from your documents will appear here after you ask a question.</p>
+        <div class="sources-empty">
+          <p class="sources-empty-title">No evidence yet</p>
+          <p class="muted-note">Ask a question to retrieve grounded passages from your selected documents.</p>
+        </div>
       </div>
     </aside>
   </div>
@@ -307,6 +315,8 @@
     const modeHint = document.getElementById("mode-hint");
     const selectedDocsEl = document.getElementById("selected-docs");
     const docContextStatus = document.getElementById("doc-context-status");
+    const workspaceDocTitle = document.getElementById("workspace-doc-title");
+    const sourcesCount = document.getElementById("sources-count");
     const chatList = document.getElementById("chat-list");
     const sourcesList = document.getElementById("sources-list");
     const backdrop = document.getElementById("backdrop");
@@ -335,42 +345,46 @@
 
     const MODE_COPY = {
       chat: {
-        hint: "Ask questions about your documents.",
-        placeholder: "Ask anything about your documents…",
-        emptyTitle: "How can I help you learn?",
-        emptySub: "Ask questions about your documents or start a learning session.",
+        hint: "Document workspace · grounded answers",
+        placeholder: "Ask about your documents…",
+        emptyTitle: "Ask anything about your documents",
+        emptySub: "GenRAG retrieves evidence from your PDFs and answers with citations.",
         suggestions: [
-          { label: "Explain a concept", text: "Explain the main concepts in this document simply." },
-          { label: "Summarize a document", text: "Summarize this document in clear bullet points." },
-          { label: "Quiz me", text: "Ask me a few questions to check my understanding of this document." },
-          { label: "Prepare me for an interview", text: "Help me prepare for an interview based on this document." },
+          { label: "Summarize this document", text: "Summarize this document in clear sections." },
+          { label: "Key findings", text: "What are the key findings in this document?" },
+          { label: "Main recommendations", text: "What are the main recommendations?" },
+          { label: "Biggest risks", text: "What are the biggest risks or weaknesses called out?" },
+          { label: "Explain it to me", text: "Explain this document to me like I’m new to the topic." },
         ],
       },
       learning: {
-        hint: "Ask me anything about your documents — I’ll teach step by step.",
+        hint: "Learning mode · step-by-step teaching",
         placeholder: "Ask to learn a concept…",
-        emptyTitle: "Learning mode",
-        emptySub: "Ask me anything about your documents.",
+        emptyTitle: "Learn from your documents",
+        emptySub: "I’ll teach concepts step by step using passages from your selected PDFs.",
         suggestions: [
-          { label: "Explain simply", text: "Explain this simply, like I’m new to the topic." },
-          { label: "Explain step-by-step", text: "Explain this step-by-step." },
+          { label: "Explain simply", text: "Explain the main idea of this document simply." },
+          { label: "Step-by-step", text: "Walk me through the core argument step-by-step." },
           { label: "Give an example", text: "Give a concrete example from the document." },
-          { label: "Test my understanding", text: "Test my understanding with one short question." },
+          { label: "Test me", text: "Test my understanding with one short question." },
         ],
       },
       interview: {
-        hint: "I’ll ask questions based on your selected material.",
+        hint: "Interview mode · practice with feedback",
         placeholder: "Answer the interview question…",
-        emptyTitle: "Interview mode",
-        emptySub: "I’ll ask questions based on your selected material. Start whenever you’re ready.",
+        emptyTitle: "Practice with your material",
+        emptySub: "I’ll ask questions grounded in your documents and give structured feedback.",
         suggestions: [
-          { label: "Start interview", text: "Start the interview. Ask me the first question." },
-          { label: "Focus on architecture", text: "Ask me about AI assistant architecture and tradeoffs." },
-          { label: "Focus on RAG", text: "Ask me about RAG, embeddings, and retrieval." },
-          { label: "Easier question", text: "Ask me an easier warm-up question first." },
+          { label: "Start interview", text: "Start the interview. Ask me the first question based on the selected document." },
+          { label: "Focus on findings", text: "Interview me on the key findings and recommendations." },
+          { label: "Focus on risks", text: "Ask me about risks, tradeoffs, and open questions in the document." },
+          { label: "Easier warm-up", text: "Ask me an easier warm-up question first." },
         ],
       },
     };
+
+    let lastUserMessage = "";
+    let lastRetrievedChunks = [];
 
     function escapeHtml(text) {
       return String(text)
@@ -431,32 +445,56 @@
           countEl.textContent = "No documents selected";
           countEl.classList.remove("has-selection");
         } else {
-          countEl.textContent = `${docs.length} selected: ${selectionLabel()}`;
+          countEl.textContent = `${docs.length} selected`;
           countEl.classList.add("has-selection");
+        }
+      }
+
+      const pages = docs.reduce((n, d) => n + (Number(d.page_count) || 0), 0);
+      const chunks = docs.reduce((n, d) => n + (Number(d.chunk_count) || 0), 0);
+
+      if (workspaceDocTitle) {
+        if (!docs.length) {
+          workspaceDocTitle.textContent = "No document selected";
+        } else if (docs.length === 1) {
+          workspaceDocTitle.textContent = shortName(docs[0].filename);
+        } else {
+          workspaceDocTitle.textContent = `${docs.length} documents selected`;
         }
       }
 
       if (docContextStatus) {
         if (!docs.length) {
-          docContextStatus.textContent = "No documents selected for this chat";
+          docContextStatus.textContent = "Select a PDF to analyze with grounded AI answers";
           docContextStatus.classList.remove("active");
+        } else if (docs.length === 1) {
+          docContextStatus.textContent = `PDF · ${docs[0].page_count || 0} pages · ${docs[0].chunk_count || 0} chunks`;
+          docContextStatus.classList.add("active");
         } else {
-          docContextStatus.textContent = `Using: ${selectionLabel()}`;
+          docContextStatus.textContent = `${pages} pages · ${chunks} chunks · ${selectionLabel()}`;
           docContextStatus.classList.add("active");
         }
       }
 
       if (!docs.length) {
-        selectedDocsEl.innerHTML = `<span class="chip muted">No documents selected — check docs in the sidebar</span>`;
+        selectedDocsEl.innerHTML = `
+          <div class="context-chip muted">
+            <span class="context-chip-label">Chatting with</span>
+            <span>No document selected</span>
+          </div>`;
       } else {
-        selectedDocsEl.innerHTML = docs.map((doc) => `
-          <span class="chip" data-id="${escapeHtml(doc.id)}">
-            <span>📄 ${escapeHtml(shortName(doc.filename))}</span>
-            <button type="button" class="chip-x" title="Deselect">×</button>
-          </span>
-        `).join("") + `
-          <button type="button" class="chip muted clear-all-chip" id="clear-all-chip">Clear all</button>
-        `;
+        selectedDocsEl.innerHTML = `
+          <div class="context-chip-row">
+            <span class="context-chip-label">Chatting with</span>
+            ${docs.map((doc) => `
+              <span class="chip" data-id="${escapeHtml(doc.id)}">
+                <span class="chip-icon" aria-hidden="true">PDF</span>
+                <span>${escapeHtml(shortName(doc.filename))}</span>
+                <button type="button" class="chip-x" title="Deselect" aria-label="Deselect">×</button>
+              </span>
+            `).join("")}
+            ${docs.length > 1 ? `<button type="button" class="chip muted clear-all-chip" id="clear-all-chip">Clear all</button>` : ""}
+          </div>`;
 
         selectedDocsEl.querySelectorAll(".chip[data-id]").forEach((chip) => {
           chip.querySelector(".chip-x").onclick = () => {
@@ -464,12 +502,11 @@
           };
         });
         const clearAll = document.getElementById("clear-all-chip");
-        if (clearAll) {
-          clearAll.onclick = () => clearAllDocuments(true);
-        }
+        if (clearAll) clearAll.onclick = () => clearAllDocuments(true);
       }
 
       renderDocList(documentsCache);
+      if (!hasMessages) showEmptyState();
     }
 
     function setDocumentSelected(docId, selected, announce) {
@@ -497,12 +534,22 @@
     function showEmptyState() {
       hasMessages = false;
       const copy = MODE_COPY[currentMode] || MODE_COPY.chat;
+      const docs = selectedDocuments();
+      const docName = docs.length === 1 ? shortName(docs[0].filename) : (docs.length ? `${docs.length} documents` : null);
+      const suggestions = (docs.length ? copy.suggestions : copy.suggestions.slice(0, 4)).map((s) => ({
+        label: s.label,
+        text: docName && docs.length === 1
+          ? s.text.replace(/this document/gi, `"${docName}"`)
+          : s.text,
+      }));
+
       messagesEl.innerHTML = `
         <div class="empty-state">
+          <p class="empty-kicker">Document workspace</p>
           <h2>${escapeHtml(copy.emptyTitle)}</h2>
-          <p>${escapeHtml(copy.emptySub)}</p>
+          <p>${escapeHtml(docName ? `Focused on ${docName}. ${copy.emptySub}` : copy.emptySub)}</p>
           <div class="suggestion-row">
-            ${copy.suggestions.map((s) => `
+            ${suggestions.map((s) => `
               <button type="button" class="suggestion-btn" data-text="${escapeHtml(s.text)}">${escapeHtml(s.label)}</button>
             `).join("")}
           </div>
@@ -523,18 +570,101 @@
       }
     }
 
-    function addMessage(role, text, meta = "") {
+    function highlightSource(index) {
+      const cards = sourcesList.querySelectorAll(".source-card");
+      cards.forEach((c) => c.classList.remove("active"));
+      const card = sourcesList.querySelector(`.source-card[data-index="${index}"]`);
+      if (!card) return;
+      card.classList.add("active", "expanded");
+      const preview = card.querySelector(".source-preview");
+      const chunk = lastRetrievedChunks[index];
+      if (preview && chunk) preview.textContent = chunk.text || chunk.preview || "";
+      card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      if (window.matchMedia("(max-width: 1100px)").matches) {
+        sourcesPanel.classList.add("open");
+        backdrop.hidden = false;
+        document.body.classList.add("drawer-open");
+      }
+    }
+
+    function wireCitationLinks(root) {
+      root.querySelectorAll(".cite-ref").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const idx = Number(btn.dataset.cite) - 1;
+          if (Number.isFinite(idx) && idx >= 0) highlightSource(idx);
+        });
+      });
+    }
+
+    function linkCitationsInHtml(html) {
+      return String(html).replace(/\[(\d+)\]/g, (match, n) => {
+        const num = Number(n);
+        if (!num || num > 40) return match;
+        return `<button type="button" class="cite-ref" data-cite="${num}" aria-label="Show source ${num}">[${num}]</button>`;
+      });
+    }
+
+    function addMessage(role, text, options = {}) {
       clearEmptyStateIfNeeded();
       const div = document.createElement("div");
       div.className = `message ${role}`;
+      const rawText = text;
+      const chunks = (options && options.chunks) || [];
+      const meta = typeof options === "string" ? options : (options && options.meta) || "";
 
       if (role === "assistant") {
         const card = document.createElement("div");
         card.className = "message-card";
         const body = document.createElement("div");
         body.className = "message-body";
-        body.innerHTML = renderMarkdown(text);
+        body.innerHTML = linkCitationsInHtml(renderMarkdown(text));
+        wireCitationLinks(body);
         card.appendChild(body);
+
+        const actions = document.createElement("div");
+        actions.className = "message-actions";
+        actions.innerHTML = `
+          <button type="button" class="msg-action" data-action="copy">Copy</button>
+          <button type="button" class="msg-action" data-action="regen">Regenerate</button>
+          <button type="button" class="msg-action" data-action="up">Helpful</button>
+          <button type="button" class="msg-action" data-action="down">Not helpful</button>
+        `;
+        actions.querySelector('[data-action="copy"]').onclick = async () => {
+          try {
+            await navigator.clipboard.writeText(rawText);
+            const btn = actions.querySelector('[data-action="copy"]');
+            btn.textContent = "Copied";
+            setTimeout(() => { btn.textContent = "Copy"; }, 1200);
+          } catch (_) {}
+        };
+        actions.querySelector('[data-action="regen"]').onclick = () => {
+          if (lastUserMessage) sendChatMessage(lastUserMessage, { regenerate: true });
+        };
+        actions.querySelector('[data-action="up"]').onclick = (e) => {
+          actions.querySelectorAll('[data-action="up"], [data-action="down"]').forEach((b) => b.classList.remove("active"));
+          e.currentTarget.classList.add("active");
+        };
+        actions.querySelector('[data-action="down"]').onclick = (e) => {
+          actions.querySelectorAll('[data-action="up"], [data-action="down"]').forEach((b) => b.classList.remove("active"));
+          e.currentTarget.classList.add("active");
+        };
+        card.appendChild(actions);
+
+        if (chunks.length) {
+          const cites = document.createElement("div");
+          cites.className = "message-cites";
+          cites.innerHTML = chunks.map((c, i) => `
+            <button type="button" class="cite-chip" data-cite="${i + 1}">
+              <span class="cite-num">${String(i + 1).padStart(2, "0")}</span>
+              ${escapeHtml(shortName(c.filename))} · p.${escapeHtml(String(c.page))}
+            </button>
+          `).join("");
+          cites.querySelectorAll(".cite-chip").forEach((btn) => {
+            btn.addEventListener("click", () => highlightSource(Number(btn.dataset.cite) - 1));
+          });
+          card.appendChild(cites);
+        }
+
         div.appendChild(card);
       } else {
         const body = document.createElement("div");
@@ -549,6 +679,7 @@
         m.textContent = meta;
         div.appendChild(m);
       }
+
       messagesEl.appendChild(div);
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
@@ -567,6 +698,7 @@
             <span class="generating-dot"></span>
             <span class="generating-dot"></span>
             <span class="generating-dot"></span>
+            <span class="generating-label">Retrieving evidence…</span>
           </div>
         </div>
       `;
@@ -579,41 +711,56 @@
       if (el) el.remove();
     }
 
+    function renderSourcesEmpty() {
+      if (sourcesCount) sourcesCount.textContent = "Evidence from your documents";
+      sourcesList.innerHTML = `
+        <div class="sources-empty">
+          <p class="sources-empty-title">No evidence yet</p>
+          <p class="muted-note">Ask a question to retrieve grounded passages from your selected documents.</p>
+        </div>`;
+    }
+
     function renderSources(data) {
       const chunks = data.retrieved_chunks || [];
       const sources = data.sources || [];
+      const items = chunks.length ? chunks : sources;
+      lastRetrievedChunks = items;
 
-      if (!chunks.length && !sources.length) {
-        sourcesList.innerHTML = `<p class="muted-note">No retrieved chunks for this answer. Select documents and ask again.</p>`;
+      if (!items.length) {
+        renderSourcesEmpty();
         return;
       }
 
-      const items = chunks.length ? chunks : sources;
+      if (sourcesCount) sourcesCount.textContent = "SOURCES · " + items.length;
       sourcesList.innerHTML = items.map((c, i) => {
         const name = shortName(c.filename || "Document");
         const page = c.page;
         const score = c.score;
         const text = c.text || c.preview || "";
+        const sectionHint = String(text).split(/[\n.]/)[0].trim().slice(0, 42);
         return `
-        <article class="source-card" data-index="${i}">
-          <div class="source-title">${escapeHtml(name)}</div>
-          <div class="source-page">Page ${escapeHtml(String(page))}${score != null ? ` · ${escapeHtml(Number(score).toFixed(2))}` : ""}</div>
-          <p class="source-preview">${escapeHtml(String(text).slice(0, 220))}${String(text).length > 220 ? "…" : ""}</p>
+        <article class="source-card" data-index="${i}" id="source-card-${i}">
+          <div class="source-index">${String(i + 1).padStart(2, "0")}</div>
+          <div class="source-body">
+            <div class="source-title">${escapeHtml(name)}</div>
+            <div class="source-page">Page ${escapeHtml(String(page))}${sectionHint ? " · " + escapeHtml(sectionHint) : ""}${score != null ? " · " + escapeHtml(Number(score).toFixed(2)) : ""}</div>
+            <p class="source-preview">${escapeHtml(String(text).slice(0, 220))}${String(text).length > 220 ? "…" : ""}</p>
+          </div>
         </article>`;
       }).join("");
 
       sourcesList.querySelectorAll(".source-card").forEach((card) => {
         card.addEventListener("click", () => {
-          const chunk = items[Number(card.dataset.index)];
+          const idx = Number(card.dataset.index);
+          const chunk = items[idx];
           if (!chunk) return;
-          card.classList.toggle("expanded");
+          const expanding = !card.classList.contains("expanded");
+          sourcesList.querySelectorAll(".source-card").forEach((c) => c.classList.remove("active"));
+          card.classList.toggle("expanded", expanding);
+          card.classList.add("active");
           const preview = card.querySelector(".source-preview");
           const full = chunk.text || chunk.preview || "";
-          if (card.classList.contains("expanded")) {
-            preview.textContent = full;
-          } else {
-            preview.textContent = String(full).slice(0, 220) + (String(full).length > 220 ? "…" : "");
-          }
+          preview.textContent = expanding ? full : (String(full).slice(0, 220) + (String(full).length > 220 ? "…" : ""));
         });
       });
     }
@@ -734,7 +881,7 @@
 
       messagesEl.innerHTML = "";
       hasMessages = false;
-      sourcesList.innerHTML = `<p class="muted-note">Retrieved chunks from your documents will appear here after you ask a question.</p>`;
+      renderSourcesEmpty();
 
       const messages = data.messages || [];
       if (!messages.length) {
@@ -770,7 +917,7 @@
       conversationId = null;
       setConversationTitle("New chat");
       debugPanel.textContent = "Send a message to see the retrieval pipeline.";
-      sourcesList.innerHTML = `<p class="muted-note">Retrieved chunks from your documents will appear here after you ask a question.</p>`;
+      renderSourcesEmpty();
       closeDrawers();
       showEmptyState();
       loadConversations();
@@ -795,7 +942,7 @@
       docList.innerHTML = "";
 
       if (!filtered.length) {
-        docList.innerHTML = `<li class="empty-list">${docs.length ? "No matches." : "No documents yet."}</li>`;
+        docList.innerHTML = `<li class="empty-list">${docs.length ? "No matches." : "Upload a PDF to begin."}</li>`;
         return;
       }
 
@@ -807,31 +954,17 @@
           + (selected ? " selected" : "")
           + (ready ? "" : " needs-reupload");
 
-        const check = document.createElement("input");
-        check.type = "checkbox";
-        check.className = "doc-check";
-        check.checked = selected;
-        check.disabled = !ready;
-        check.title = ready
-          ? (selected ? "Selected for this chat" : "Select for this chat")
-          : "Re-upload required — embeddings missing";
-        check.addEventListener("click", (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (!ready) {
-            addMessage("error", `"${shortName(doc.filename)}" has no embeddings. Delete it and re-upload the PDF.`);
-            return;
-          }
-          toggleDocument(doc.id, true);
-        });
-
-        const info = document.createElement("div");
-        info.className = "doc-info";
-        info.innerHTML = `
-          <div class="doc-name"><span class="doc-icon">📄</span> ${escapeHtml(shortName(doc.filename))}</div>
-          <small>${doc.page_count} pages · ${doc.chunk_count} chunks${selected ? " · selected" : ""}${ready ? "" : " · re-upload required"}</small>
+        const main = document.createElement("button");
+        main.type = "button";
+        main.className = "doc-main";
+        main.innerHTML = `
+          <span class="doc-badge" aria-hidden="true">PDF</span>
+          <span class="doc-info">
+            <span class="doc-name">${escapeHtml(shortName(doc.filename))}</span>
+            <span class="doc-meta">PDF · ${doc.page_count || 0} pages · ${doc.chunk_count || 0} chunks${ready ? "" : " · re-upload"}</span>
+          </span>
         `;
-        info.onclick = () => {
+        main.onclick = () => {
           if (!ready) {
             addMessage("error", `"${shortName(doc.filename)}" has no embeddings. Delete it and re-upload the PDF.`);
             return;
@@ -843,14 +976,14 @@
         delBtn.type = "button";
         delBtn.className = "doc-delete";
         delBtn.title = "Remove document";
+        delBtn.setAttribute("aria-label", "Remove document");
         delBtn.textContent = "×";
         delBtn.onclick = (e) => {
           e.stopPropagation();
           deleteDocument(doc.id, doc.filename);
         };
 
-        li.appendChild(check);
-        li.appendChild(info);
+        li.appendChild(main);
         li.appendChild(delBtn);
         docList.appendChild(li);
       });
@@ -1056,9 +1189,14 @@
       e.preventDefault();
       const text = input.value.trim();
       if (!text) return;
-
-      addMessage("user", text);
       input.value = "";
+      await sendChatMessage(text);
+    });
+
+    async function sendChatMessage(text, options = {}) {
+      const regenerate = !!options.regenerate;
+      lastUserMessage = text;
+      if (!regenerate) addMessage("user", text);
       sendBtn.disabled = true;
       showGenerating();
 
@@ -1083,14 +1221,8 @@
         if (data.title) setConversationTitle(data.title);
         loadConversations();
 
-        let meta = "";
-        if (data.sources && data.sources.length) {
-          const labels = data.sources.map((s) =>
-            `${shortName(s.filename || "Document")} p.${s.page}`
-          );
-          meta = "Sources: " + labels.join(" · ");
-        }
-        addMessage("assistant", data.reply, meta);
+        const chunks = data.retrieved_chunks || data.sources || [];
+        addMessage("assistant", data.reply, { chunks });
         renderSources(data);
 
         if (data.memory_saved) {
@@ -1106,7 +1238,7 @@
         sendBtn.disabled = false;
         input.focus();
       }
-    });
+    }
 
     newChatBtn.addEventListener("click", startNewChat);
 

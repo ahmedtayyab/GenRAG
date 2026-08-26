@@ -79,8 +79,8 @@ def _build_system_prompt(
 
     if chunks:
         context_block = "\n\n---\n\n".join(
-            f"[Source: {c.filename or 'Document'} | Page {c.page} | score {c.score}]\n{c.text}"
-            for c in chunks
+            f"[{i}] {c.filename or 'Document'} | Page {c.page}\n{c.text}"
+            for i, c in enumerate(chunks, start=1)
         )
     elif selected:
         names = ", ".join(selected)
@@ -108,7 +108,8 @@ Rules:
 - If no documents are selected, say so clearly and answer from general knowledge if appropriate.
 - Do not invent page numbers, filenames, or quotes not present in context.
 - Do not say "no document uploaded" if documents are listed as selected above.
-- Cite filename and pages when using document context (e.g. "DSA Notes.pdf, pages 3–4").
+- When using document context, cite sources inline with bracket numbers matching the context labels, e.g. [1] or [2]. Place citations at the end of the sentence they support.
+- Prefer clear markdown: short headings, bullet lists, and concise paragraphs.
 """
 
     if mode == "learning":

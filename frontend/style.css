@@ -27,17 +27,17 @@
   --panel-shadow: 0 0 32px rgba(0, 0, 0, 0.4);
   --radius: 10px;
   --radius-sm: 7px;
-  --sidebar-w: 264px;
-  --sources-w: 280px;
-  --content-max: 720px;
+  --sidebar-w: 288px;
+  --sources-w: 300px;
+  --content-max: 760px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
-  --font: "Segoe UI", system-ui, -apple-system, sans-serif;
-  --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  --font: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
   color-scheme: dark;
 }
 
