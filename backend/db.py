@@ -90,7 +90,6 @@ def get_connection() -> Iterator[Any]:
             _pg_url(),
             row_factory=dict_row,
             connect_timeout=8,
-            options="-c statement_timeout=10000",
         )
         try:
             yield conn
