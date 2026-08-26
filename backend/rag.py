@@ -13,22 +13,24 @@ def build_rag_response(
     user_message: str,
     history: list[dict],
     mode: str,
+    user_id: str,
     document_ids: list[str] | None = None,
     document_filenames: dict[str, str] | None = None,
 ) -> dict:
-    extracted = try_extract_memory(user_message)
-    memories = find_relevant_memories(user_message)
+    extracted = try_extract_memory(user_message, user_id)
+    memories = find_relevant_memories(user_message, user_id)
 
     selected_ids = [d for d in (document_ids or []) if d]
     chunks: list[SearchResult] = []
     if selected_ids:
-        query_vector = embed_text(user_message)  # one query embedding for all selected docs
+        query_vector = embed_text(user_message)
         chunks = search_documents(
             selected_ids,
             query_vector,
             filenames=document_filenames or {},
             top_k_per_doc=3,
             final_top_k=6,
+            user_id=user_id,
         )
 
     selected_names = [

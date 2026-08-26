@@ -15,3 +15,11 @@ services:
         value: "16"
       - key: EMBED_REQUEST_DELAY
         value: "0.7"
+      - key: DATABASE_URL
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: RENDER
+        value: "true"

@@ -7,4 +7,6 @@ openai>=1.55.0            # Gemini chat via OpenAI-compatible endpoint
 pydantic>=2.0.0           # validates JSON request/response shapes
 pypdf>=5.0.0              # PDF text extraction (Phase 2)
 python-multipart>=0.0.9   # required for file upload endpoints
-chromadb>=0.5.0           # local vector database for embeddings
+chromadb>=0.5.0           # local vector fallback when DATABASE_URL is unset
+psycopg[binary]>=3.2.0    # Neon / Postgres driver
+google-auth>=2.29.0       # verify Google ID tokens

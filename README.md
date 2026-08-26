@@ -87,11 +87,13 @@ To keep GenRAG usable on Gemini free tier, avoid wasted embedding quota, and mak
 
 - PDF upload + text extraction
 - Chunking with overlap
-- Batched Gemini embeddings + Chroma cosine search
-- Multi-document selection per chat
-- SHA-256 upload deduplication
+- Batched Gemini embeddings (768-d, L2-normalized)
+- **Neon Postgres + pgvector** in production (SQLite + Chroma locally)
+- **Google Sign-In** + **Continue as guest** (with persistence disclaimer)
+- Multi-document selection per chat (per-user isolation)
+- SHA-256 upload deduplication **per user**
 - Source citations (filename + page)
-- User memory (rule-based)
+- User memory (rule-based, per user)
 - Modes: **Chat**, **Learning**, **Interview**
 - Persistent chat history with titles
 - Debug panel for retrieval transparency
@@ -107,7 +109,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Create `.env` in the project root:
+Create `.env` in the project root (see `.env.example`):
 
 ```env
 GEMINI_API_KEY=AIza-your-key-here
@@ -115,40 +117,61 @@ GEMINI_MODEL=gemini-3.5-flash
 GEMINI_EMBED_MODEL=gemini-embedding-001
 EMBED_BATCH_SIZE=16
 EMBED_REQUEST_DELAY=0.7
+COOKIE_SECURE=false
+# Optional but recommended for durable multi-user data:
+# DATABASE_URL=postgresql://...@...neon.tech/neondb?sslmode=require
+# GOOGLE_CLIENT_ID=....apps.googleusercontent.com
 ```
+
+Without `DATABASE_URL`, GenRAG uses **local SQLite + Chroma** (fine for solo testing).  
+With Neon `DATABASE_URL`, it uses **Postgres + pgvector** (signed-in data survives Render restarts).
 
 ```powershell
-uvicorn main:app --reload
+cd backend
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 2. Frontend
+Open http://localhost:8000 — auth gate first, then the app.
 
-```powershell
-cd frontend
-python -m http.server 5500
-```
+### 2. Google Sign-In setup (free)
 
-Open http://localhost:5500
+1. [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials  
+2. Create **OAuth client ID** → application type **Web application**  
+3. Authorized JavaScript origins: `http://localhost:8000` and your Render URL  
+4. Authorized redirect URIs: same origins  
+5. Put the client ID in `.env` as `GOOGLE_CLIENT_ID`  
+6. On Render, add the same env var  
 
-Or open the UI from the API itself: http://localhost:8000
+Guest mode works without Google. Google button appears once `GOOGLE_CLIENT_ID` is set.
 
-### 3. Try it
+### 3. Neon Postgres (recommended free DB)
 
-1. Upload one or more PDFs
-2. Check the documents you want for this chat
-3. Ask a question that spans the selected material
-4. Check **Sources** for filename + page
-5. Start a **New chat** — documents stay in the library (not re-embedded)
+1. Create a project at [neon.tech](https://neon.tech)  
+2. Copy the connection string into `DATABASE_URL`  
+3. Restart the API — tables + `vector` extension are created automatically  
+4. Re-upload PDFs after switching from SQLite (vectors move to pgvector)
+
+### 4. Try it
+
+1. Continue as guest **or** Continue with Google  
+2. Upload one or more PDFs  
+3. Select documents and ask a question  
+4. Check **Sources** for filename + page  
 
 ## API overview
 
 | Endpoint | Purpose |
 |----------|---------|
-| `POST /documents/upload` | Upload PDF (or reuse if hash exists) |
-| `GET /documents` | List library documents |
+| `GET /auth/config` | Public Google client id flag |
+| `GET /auth/me` | Current session user |
+| `POST /auth/guest` | Start guest session (cookie) |
+| `POST /auth/google` | Exchange Google ID token for session |
+| `POST /auth/logout` | Clear session |
+| `POST /documents/upload` | Upload PDF (user-scoped) |
+| `GET /documents` | List **your** documents |
 | `DELETE /documents/{id}` | Remove document + vectors |
 | `POST /chat` | Chat (`document_ids` for multi-doc RAG) |
-| `GET /conversations` | List saved chats |
+| `GET /conversations` | List **your** chats |
 | `GET /conversations/{id}` | Load chat messages |
 | `DELETE /conversations/{id}` | Delete a chat |
 | `GET /memories` | List memories |
@@ -158,49 +181,44 @@ Or open the UI from the API itself: http://localhost:8000
 
 ```
 backend/
-  main.py          # API routes
+  main.py          # API routes + static UI
+  auth.py          # Google + guest sessions
+  db.py            # Postgres / SQLite connection
+  database.py      # Users, chats, docs, memories
   ingestion.py     # PDF → text
   chunking.py      # text → chunks
-  embeddings.py    # batched Gemini embeddings
-  vector_store.py  # Chroma store + multi-doc search
+  embeddings.py    # batched Gemini embeddings (768-d)
+  vector_store.py  # pgvector or Chroma
   memory.py        # user memory
   rag.py           # retrieval + prompt + modes
   llm.py           # Gemini chat
-  database.py      # SQLite (+ content_hash)
 frontend/
-  index.html
+  index.html       # UI + auth gate
   style.css
-data/              # genrag.db, chroma (gitignored)
+data/              # local sqlite/chroma only (gitignored)
 ```
 
 ## Deploy (free)
 
-The app is one service: FastAPI serves the API **and** the frontend.
+One Render Docker service serves UI + API.
 
-**Limits of the free tier:** the instance sleeps after idle time (first load can take ~1 minute), and uploaded PDFs/chats live on ephemeral disk — they reset when the service restarts.
+**Stack:** Render (app) + Neon (Postgres/pgvector) + Google OAuth + Gemini free tier.
+
+**Limits:** Render sleeps when idle (~1 min cold start). Neon free has compute/storage caps — enough for a portfolio/demo.
 
 ### Render
 
-1. Push this repo to GitHub
-2. Open [Render](https://render.com) → **New** → **Web Service** → connect the repo
-3. Settings:
-   - **Runtime:** Docker
-   - **Instance type:** Free
-   - **Health check path:** `/health`
-4. Add environment variable:
-   - `GEMINI_API_KEY` = your key from [Google AI Studio](https://aistudio.google.com/apikey)
-5. Deploy. Your public URL is the whole app (no separate frontend host)
+1. Push this repo to GitHub  
+2. **New → Web Service** → Docker → Free  
+3. Health check: `/health`  
+4. Env vars:  
+   - `GEMINI_API_KEY`  
+   - `DATABASE_URL` (Neon)  
+   - `GOOGLE_CLIENT_ID`  
+   - `COOKIE_SECURE=true`  
+5. Deploy — open the Render URL  
 
-Optional: **New** → **Blueprint** and select this repo (`render.yaml`).
-
-### Local check before deploy
-
-```powershell
-cd backend
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
-```
-
-Open http://localhost:8000 — you should see the GenRAG UI.
+Guest disclaimer: guest data is temporary. Google accounts persist in Neon across deploys.
 
 ## Author
 

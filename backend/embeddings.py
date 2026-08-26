@@ -1,16 +1,32 @@
-# Text → embedding vectors (Phase 4) — Gemini via OpenAI-compatible API
+# Text → embedding vectors — Gemini via OpenAI-compatible API (768-d for pgvector)
 
+import math
 import os
 import time
 
 from openai import OpenAI, RateLimitError
 
+from database import EMBED_DIM
 from llm import GEMINI_BASE_URL
 
 EMBED_MODEL = os.getenv("GEMINI_EMBED_MODEL", "gemini-embedding-001")
-REQUEST_DELAY = float(os.getenv("EMBED_REQUEST_DELAY", "0.7"))  # pause between batches
-BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", "16"))  # chunks per embedding API call
+REQUEST_DELAY = float(os.getenv("EMBED_REQUEST_DELAY", "0.7"))
+BATCH_SIZE = int(os.getenv("EMBED_BATCH_SIZE", "16"))
 MAX_RETRIES = 5
+
+
+def _l2_normalize(vec: list[float]) -> list[float]:
+    norm = math.sqrt(sum(x * x for x in vec)) or 1.0
+    return [x / norm for x in vec]
+
+
+def _fit_dim(vec: list[float]) -> list[float]:
+    """Truncate/pad to EMBED_DIM and L2-normalize (needed when truncating gemini-embedding-001)."""
+    if len(vec) > EMBED_DIM:
+        vec = vec[:EMBED_DIM]
+    elif len(vec) < EMBED_DIM:
+        vec = vec + [0.0] * (EMBED_DIM - len(vec))
+    return _l2_normalize(vec)
 
 
 def embed_text(text: str) -> list[float]:
@@ -18,7 +34,6 @@ def embed_text(text: str) -> list[float]:
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
-    """Embed many texts using batched API calls; return vectors in the same order."""
     if not texts:
         return []
 
@@ -57,16 +72,28 @@ def _embed_batch_with_retry(
 
     for attempt in range(MAX_RETRIES):
         try:
-            response = client.embeddings.create(model=EMBED_MODEL, input=batch)
+            kwargs = {"model": EMBED_MODEL, "input": batch}
+            # Prefer provider-side truncation when supported
+            try:
+                response = client.embeddings.create(**kwargs, dimensions=EMBED_DIM)
+            except TypeError:
+                response = client.embeddings.create(**kwargs)
+            except Exception as dim_exc:
+                if "dimension" in str(dim_exc).lower():
+                    response = client.embeddings.create(**kwargs)
+                else:
+                    raise
+
             if len(response.data) != len(batch):
                 raise ValueError(
                     f"Expected {len(batch)} embeddings, got {len(response.data)}"
                 )
-            # Prefer index mapping when the API provides indexes; otherwise keep response order
             if all(getattr(item, "index", None) is not None for item in response.data):
                 by_index = {item.index: item.embedding for item in response.data}
-                return [by_index[i] for i in range(len(batch))]
-            return [item.embedding for item in response.data]
+                raw = [by_index[i] for i in range(len(batch))]
+            else:
+                raw = [item.embedding for item in response.data]
+            return [_fit_dim(v) for v in raw]
         except RateLimitError as exc:
             last_error = exc
             time.sleep(20 * (attempt + 1))

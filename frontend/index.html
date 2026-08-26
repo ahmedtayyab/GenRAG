@@ -19,9 +19,29 @@
   <meta name="theme-color" content="#001B5E">
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
-<body>
-  <div class="app">
+<body class="auth-pending">
+  <div id="auth-gate" class="auth-gate" hidden>
+    <div class="auth-card">
+      <img class="auth-logo brand-logo-light" src="assets/genrag-logo.png" alt="GenRAG">
+      <img class="auth-logo brand-logo-dark" src="assets/genrag-logo-dark.png" alt="GenRAG">
+      <h1>Document learning workspace</h1>
+      <p class="auth-lead">Upload PDFs, ask grounded questions, and keep your library across sessions.</p>
+
+      <div id="google-btn-wrap" class="google-btn-wrap"></div>
+      <p id="google-unavailable" class="muted-note" hidden>Google Sign-In is not configured yet. You can still continue as a guest.</p>
+
+      <button type="button" class="btn-guest" id="guest-btn">Continue as guest</button>
+
+      <div class="guest-disclaimer">
+        <strong>Guest mode disclaimer</strong>
+        <p>Without signing in, your chats, uploaded documents, and memory are temporary. They can be lost when this browser session ends, you clear site data, or the free server restarts. Sign in with Google to keep your workspace.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="app" id="app-shell" hidden>
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-top">
         <div class="brand">
@@ -75,6 +95,19 @@
       </section>
 
       <div class="sidebar-footer">
+        <div class="account-block" id="account-block">
+          <div class="account-info">
+            <img class="account-avatar" id="account-avatar" alt="" hidden>
+            <div class="account-text">
+              <span class="account-name" id="account-name">Guest</span>
+              <span class="account-meta" id="account-meta">Temporary workspace</span>
+            </div>
+          </div>
+          <div class="account-actions">
+            <button type="button" class="text-btn" id="upgrade-btn" hidden>Keep with Google</button>
+            <button type="button" class="text-btn" id="logout-btn">Sign out</button>
+          </div>
+        </div>
         <div class="sidebar-footer-left">
           <button type="button" class="text-btn" id="memory-btn">Memory · <span id="memory-count">0</span></button>
           <button type="button" class="text-btn" id="debug-btn">Debug</button>
@@ -97,6 +130,10 @@
         <button type="button" class="header-action mobile-only" id="sources-open" aria-label="Open sources">Sources</button>
       </header>
 
+      <div id="guest-banner" class="guest-banner" hidden>
+        You’re in guest mode — chats and uploads won’t persist unless you sign in.
+        <button type="button" class="text-btn" id="banner-upgrade-btn">Keep with Google</button>
+      </div>
       <div id="messages" class="messages"></div>
 
       <div class="composer">
@@ -148,6 +185,35 @@
       && location.port !== "8000"
         ? "http://localhost:8000"
         : "";
+
+    async function api(path, options = {}) {
+      const opts = { credentials: "include", ...options };
+      const headers = { ...(opts.headers || {}) };
+      if (opts.json !== undefined) {
+        headers["Content-Type"] = "application/json";
+        opts.body = JSON.stringify(opts.json);
+        delete opts.json;
+      }
+      opts.headers = headers;
+      const res = await fetch(`${API_BASE}${path}`, opts);
+      let data = null;
+      const text = await res.text();
+      try { data = text ? JSON.parse(text) : null; } catch { data = { detail: text }; }
+      return { res, data };
+    }
+
+    let currentUser = null;
+
+    const authGate = document.getElementById("auth-gate");
+    const appShell = document.getElementById("app-shell");
+    const guestBanner = document.getElementById("guest-banner");
+    const accountName = document.getElementById("account-name");
+    const accountMeta = document.getElementById("account-meta");
+    const accountAvatar = document.getElementById("account-avatar");
+    const upgradeBtn = document.getElementById("upgrade-btn");
+    const bannerUpgradeBtn = document.getElementById("banner-upgrade-btn");
+    const logoutBtn = document.getElementById("logout-btn");
+    const guestBtn = document.getElementById("guest-btn");
 
     const messagesEl = document.getElementById("messages");
     const form = document.getElementById("chat-form");
@@ -514,9 +580,9 @@
 
     async function loadConversations() {
       try {
-        const res = await fetch(`${API_BASE}/conversations`);
-        const data = await res.json();
-        const conversations = data.conversations || [];
+        const { res, data } = await api("/conversations");
+        if (!res.ok) throw new Error("fail");
+        const conversations = (data && data.conversations) || [];
         chatList.innerHTML = "";
 
         if (!conversations.length) {
@@ -565,13 +631,7 @@
 
     async function openConversation(id, options = {}) {
       const silent = !!options.silent;
-      const res = await fetch(`${API_BASE}/conversations/${id}`);
-      let data = {};
-      try {
-        data = await res.json();
-      } catch {
-        data = {};
-      }
+      const { res, data } = await api(`/conversations/${id}`);
       if (!res.ok) {
         if (!silent) addMessage("error", data.detail || "Could not open chat.");
         if (silent) startNewChat();
@@ -602,8 +662,7 @@
 
     async function deleteConversation(id, title) {
       if (!confirm(`Delete chat "${title}"?`)) return;
-      const res = await fetch(`${API_BASE}/conversations/${id}`, { method: "DELETE" });
-      const data = await res.json();
+      const { res, data } = await api(`/conversations/${id}`, { method: "DELETE" });
       if (!res.ok) {
         addMessage("error", data.detail || "Could not delete chat.");
         return;
@@ -629,8 +688,7 @@
 
     async function deleteDocument(docId, filename) {
       if (!confirm(`Remove "${filename}"? This deletes chunks and embeddings.`)) return;
-      const res = await fetch(`${API_BASE}/documents/${docId}`, { method: "DELETE" });
-      const data = await res.json();
+      const { res, data } = await api(`/documents/${docId}`, { method: "DELETE" });
       if (!res.ok) {
         addMessage("error", data.detail || "Could not remove document.");
         return;
@@ -709,9 +767,9 @@
     }
 
     async function loadDocuments() {
-      const res = await fetch(`${API_BASE}/documents`);
-      const data = await res.json();
-      documentsCache = data.documents || [];
+      const { res, data } = await api("/documents");
+      if (!res.ok) return;
+      documentsCache = (data && data.documents) || [];
 
       const validIds = new Set(documentsCache.map((d) => d.id));
       const readyIds = new Set(
@@ -735,9 +793,9 @@
     }
 
     async function loadMemories() {
-      const res = await fetch(`${API_BASE}/memories`);
-      const data = await res.json();
-      const memories = data.memories || [];
+      const { res, data } = await api("/memories");
+      if (!res.ok) return;
+      const memories = (data && data.memories) || [];
       memoryCount.textContent = String(memories.length);
       memoryList.innerHTML = "";
       if (!memories.length) {
@@ -752,9 +810,8 @@
     }
 
     async function loadDebug() {
-      const res = await fetch(`${API_BASE}/debug/last`);
-      const d = await res.json();
-      if (!d.question) {
+      const { res, data: d } = await api("/debug/last");
+      if (!res.ok || !d || !d.question) {
         debugPanel.textContent = "Send a message to see the retrieval pipeline.";
         return;
       }
@@ -847,18 +904,13 @@
         formData.append("file", file);
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 300000);
-        const res = await fetch(`${API_BASE}/documents/upload`, {
+        const { res, data } = await api("/documents/upload", {
           method: "POST",
           body: formData,
           signal: controller.signal,
         });
         clearTimeout(timeout);
-        let data;
-        try {
-          data = await res.json();
-        } catch {
-          throw new Error(`Server error (${res.status}). Check backend terminal.`);
-        }
+        if (!data) throw new Error(`Server error (${res.status}). Check backend terminal.`);
         if (!res.ok) throw new Error(data.detail || `Upload failed (${res.status})`);
 
         const alreadySelected = selectedDocumentIds.includes(data.document_id);
@@ -901,20 +953,18 @@
       showGenerating();
 
       try {
-        const res = await fetch(`${API_BASE}/chat`, {
+        const { res, data } = await api("/chat", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+          json: {
             message: text,
             conversation_id: conversationId,
             document_ids: selectedDocumentIds,
             mode: currentMode,
-          }),
+          },
         });
-        const data = await res.json();
         hideGenerating();
         if (!res.ok) {
-          addMessage("error", data.detail || "Request failed.");
+          addMessage("error", (data && data.detail) || "Request failed.");
           return;
         }
 
@@ -967,14 +1017,140 @@
     });
     applyTheme(currentTheme());
 
-    setConversationTitle(conversationTitle);
-    setMode(currentMode);
-    showEmptyState();
-    loadDocuments();
-    loadMemories();
-    loadConversations().then(() => {
-      if (conversationId) openConversation(conversationId, { silent: true });
+    function renderAccount(user) {
+      currentUser = user;
+      accountName.textContent = user.name || (user.is_guest ? "Guest" : "User");
+      accountMeta.textContent = user.is_guest
+        ? "Temporary workspace"
+        : (user.email || "Signed in with Google");
+      if (user.picture) {
+        accountAvatar.src = user.picture;
+        accountAvatar.hidden = false;
+      } else {
+        accountAvatar.hidden = true;
+        accountAvatar.removeAttribute("src");
+      }
+      upgradeBtn.hidden = !user.is_guest;
+      guestBanner.hidden = !user.is_guest;
+    }
+
+    function showApp(user) {
+      renderAccount(user);
+      authGate.hidden = true;
+      appShell.hidden = false;
+      document.body.classList.remove("auth-pending");
+      setConversationTitle(conversationTitle);
+      setMode(currentMode);
+      showEmptyState();
+      loadDocuments();
+      loadMemories();
+      loadConversations().then(() => {
+        if (conversationId) openConversation(conversationId, { silent: true });
+      });
+    }
+
+    let authConfigCache = {};
+
+    function initGoogleButton(config) {
+      authConfigCache = config || {};
+      const googleWrap = document.getElementById("google-btn-wrap");
+      const googleUnavailable = document.getElementById("google-unavailable");
+      googleWrap.innerHTML = "";
+      if (config && config.google_enabled && config.google_client_id && window.google) {
+        googleUnavailable.hidden = true;
+        window.google.accounts.id.initialize({
+          client_id: config.google_client_id,
+          callback: async (response) => {
+            const { res, data } = await api("/auth/google", {
+              method: "POST",
+              json: { credential: response.credential, merge_guest: true },
+            });
+            if (!res.ok) {
+              alert((data && data.detail) || "Google sign-in failed.");
+              return;
+            }
+            localStorage.removeItem("genrag_conversation_id");
+            localStorage.removeItem("genrag_document_ids");
+            conversationId = null;
+            selectedDocumentIds = [];
+            showApp(data.user);
+          },
+        });
+        window.google.accounts.id.renderButton(googleWrap, {
+          theme: document.documentElement.getAttribute("data-theme") === "light" ? "outline" : "filled_black",
+          size: "large",
+          width: 320,
+          text: "continue_with",
+          shape: "rectangular",
+        });
+      } else {
+        googleUnavailable.hidden = false;
+      }
+    }
+
+    function showAuthGate(config) {
+      authGate.hidden = false;
+      appShell.hidden = true;
+      document.body.classList.add("auth-pending");
+      initGoogleButton(config);
+    }
+
+    function promptGoogleUpgrade() {
+      if (!authConfigCache.google_enabled) {
+        alert("Add GOOGLE_CLIENT_ID on the server to enable Google Sign-In.");
+        return;
+      }
+      showAuthGate(authConfigCache);
+    }
+
+    guestBtn.addEventListener("click", async () => {
+      guestBtn.disabled = true;
+      try {
+        const { res, data } = await api("/auth/guest", { method: "POST" });
+        if (!res.ok) throw new Error((data && data.detail) || "Guest login failed");
+        showApp(data.user);
+      } catch (e) {
+        alert(e.message || "Guest login failed");
+      } finally {
+        guestBtn.disabled = false;
+      }
     });
+
+    logoutBtn.addEventListener("click", async () => {
+      await api("/auth/logout", { method: "POST" });
+      localStorage.removeItem("genrag_conversation_id");
+      localStorage.removeItem("genrag_conversation_title");
+      localStorage.removeItem("genrag_document_ids");
+      conversationId = null;
+      selectedDocumentIds = [];
+      currentUser = null;
+      location.reload();
+    });
+
+    upgradeBtn.addEventListener("click", promptGoogleUpgrade);
+    bannerUpgradeBtn.addEventListener("click", promptGoogleUpgrade);
+
+    async function boot() {
+      try {
+        const { data: cfg } = await api("/auth/config");
+        authConfigCache = cfg || {};
+        const { res, data } = await api("/auth/me");
+        if (res.ok && data && data.user) {
+          showApp(data.user);
+          return;
+        }
+        let tries = 0;
+        while (!window.google && tries < 25) {
+          await new Promise((r) => setTimeout(r, 100));
+          tries += 1;
+        }
+        showAuthGate(authConfigCache);
+      } catch {
+        showAuthGate({});
+      }
+    }
+
+    boot();
   </script>
 </body>
 </html>

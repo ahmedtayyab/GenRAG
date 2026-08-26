@@ -1,4 +1,4 @@
-# User memory: extract → store → retrieve (Phase 9) — rule-based, like About Us
+# User memory: extract → store → retrieve — scoped per user
 
 import re
 import uuid
@@ -26,7 +26,7 @@ REMEMBER_PATTERNS = [
 ]
 
 
-def try_extract_memory(message: str) -> MemoryRecord | None:
+def try_extract_memory(message: str, user_id: str) -> MemoryRecord | None:
     lowered = message.strip()
     for pattern, category in REMEMBER_PATTERNS:
         match = re.search(pattern, lowered, re.IGNORECASE)
@@ -35,13 +35,13 @@ def try_extract_memory(message: str) -> MemoryRecord | None:
             if len(text) < 3:
                 return None
             mem_id = str(uuid.uuid4())[:8]
-            add_memory(mem_id, text, category, 85)  # save to SQLite
+            add_memory(mem_id, text, category, 85, user_id)
             return MemoryRecord(id=mem_id, text=text, category=category, confidence=85)
     return None
 
 
-def find_relevant_memories(query: str, top_k: int = 3) -> list[MemoryRecord]:
-    memories = get_all_memories()
+def find_relevant_memories(query: str, user_id: str, top_k: int = 3) -> list[MemoryRecord]:
+    memories = get_all_memories(user_id)
     if not memories:
         return []
 
@@ -50,9 +50,9 @@ def find_relevant_memories(query: str, top_k: int = 3) -> list[MemoryRecord]:
 
     for mem in memories:
         mem_words = set(_tokenize(mem["text"]))
-        overlap = len(query_words & mem_words)  # keyword overlap — simple but predictable (About Us style)
+        overlap = len(query_words & mem_words)
         if any(w in query.lower() for w in ("remember", "interview", "struggle", "weak")):
-            overlap += 0.5  # small boost when user seems to ask about personal context
+            overlap += 0.5
         if overlap > 0:
             scored.append((overlap, mem))
 
@@ -70,15 +70,15 @@ def find_relevant_memories(query: str, top_k: int = 3) -> list[MemoryRecord]:
     return results
 
 
-def list_memories() -> list[MemoryRecord]:
+def list_memories(user_id: str) -> list[MemoryRecord]:
     return [
         MemoryRecord(id=m["id"], text=m["text"], category=m["category"], confidence=m["confidence"])
-        for m in get_all_memories()
+        for m in get_all_memories(user_id)
     ]
 
 
-def remove_memory(memory_id: str) -> bool:
-    return delete_memory(memory_id)
+def remove_memory(memory_id: str, user_id: str) -> bool:
+    return delete_memory(memory_id, user_id)
 
 
 def _tokenize(text: str) -> list[str]:
