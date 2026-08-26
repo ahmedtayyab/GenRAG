@@ -1,5 +1,5 @@
 # Database connection — Neon Postgres (production) or local SQLite (fallback)
-# Guest sessions always use SQLite so Neon cold-starts never block login.
+# Guest sessions always use SQLite/memory so Neon cold-starts never block login.
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from typing import Any, Iterator
 from dotenv import load_dotenv
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-DB_PATH = ROOT_DIR / "data" / "genrag.db"
 load_dotenv(ROOT_DIR / ".env")
 
 # Set True to force SQLite even if DATABASE_URL exists (Neon unreachable).
@@ -24,6 +23,16 @@ _tls = threading.local()
 
 def database_url() -> str:
     return (os.getenv("DATABASE_URL") or "").strip()
+
+
+def sqlite_path() -> Path:
+    explicit = (os.getenv("SQLITE_PATH") or "").strip()
+    if explicit:
+        return Path(explicit)
+    # Render's container FS can be awkward; /tmp is always writable.
+    if os.getenv("RENDER"):
+        return Path("/tmp/genrag.db")
+    return ROOT_DIR / "data" / "genrag.db"
 
 
 def prefer_sqlite_for_request(enabled: bool = True) -> None:
@@ -57,14 +66,15 @@ def force_sqlite(reason: str = "") -> None:
     print(msg, flush=True)
 
 
-def probe_postgres(timeout_sec: float = 4.0) -> bool:
+def probe_postgres(timeout_sec: float = 3.0) -> bool:
     """Return True if Postgres accepts a connection within timeout; else force SQLite."""
     global _postgres_checked
     if _postgres_checked:
         return use_postgres()
     _postgres_checked = True
 
-    if not (database_url().lower().startswith("postgres://") or database_url().lower().startswith("postgresql://")):
+    url = database_url().lower()
+    if not (url.startswith("postgres://") or url.startswith("postgresql://")):
         return False
     if _force_sqlite:
         return False
@@ -84,7 +94,7 @@ def probe_postgres(timeout_sec: float = 4.0) -> bool:
 
     thread = threading.Thread(target=_connect, daemon=True)
     thread.start()
-    thread.join(timeout_sec + 1.0)
+    thread.join(timeout_sec + 0.8)
     if thread.is_alive() or not result["ok"]:
         force_sqlite(result["err"] or "connection timed out")
         return False
@@ -92,8 +102,9 @@ def probe_postgres(timeout_sec: float = 4.0) -> bool:
 
 
 def open_sqlite() -> sqlite3.Connection:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH), timeout=15)
+    path = sqlite_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(path), timeout=5)
     conn.row_factory = sqlite3.Row
     return conn
 

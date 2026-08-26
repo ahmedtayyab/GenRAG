@@ -156,14 +156,10 @@ def auth_me(user: dict | None = Depends(get_optional_user)):
 
 @app.post("/auth/guest")
 def auth_guest(response: Response):
-    try:
-        user = start_guest_session(response)
-        return {"user": user}
-    except Exception as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Guest login failed: {exc}",
-        ) from exc
+    # Intentionally tiny + sync: must return even when Neon/disk are unhealthy.
+    user = start_guest_session(response)
+    prefer_sqlite_for_request(True)
+    return {"user": user, "ok": True}
 
 
 @app.post("/auth/google")

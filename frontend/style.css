@@ -1564,6 +1564,11 @@ body.auth-pending {
   line-height: 1.45;
 }
 
+.auth-error {
+  color: #e57373;
+  margin-top: 2px;
+}
+
 .auth-divider {
   display: flex;
   align-items: center;
@@ -1572,6 +1577,11 @@ body.auth-pending {
   color: var(--faint);
   font-size: 12px;
   text-transform: lowercase;
+}
+
+.app[hidden],
+.auth-gate[hidden] {
+  display: none !important;
 }
 
 .auth-divider::before,

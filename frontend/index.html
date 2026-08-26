@@ -63,6 +63,7 @@
           </div>
 
           <button type="button" class="btn-guest" id="guest-btn">Continue as guest</button>
+          <p id="auth-error" class="auth-note auth-error" hidden></p>
         </div>
 
         <aside class="guest-disclaimer" aria-label="Guest mode disclaimer">
@@ -1102,14 +1103,40 @@
       guestBanner.hidden = !user.is_guest;
     }
 
+    function showAuthError(message) {
+      const el = document.getElementById("auth-error");
+      if (!el) {
+        alert(message);
+        return;
+      }
+      if (!message) {
+        el.hidden = true;
+        el.textContent = "";
+        return;
+      }
+      el.hidden = false;
+      el.textContent = message;
+    }
+
     function showApp(user) {
-      renderAccount(user);
+      try {
+        renderAccount(user);
+      } catch (e) {
+        console.warn("renderAccount:", e);
+      }
       authGate.hidden = true;
+      authGate.setAttribute("hidden", "");
       appShell.hidden = false;
+      appShell.removeAttribute("hidden");
       document.body.classList.remove("auth-pending");
-      setConversationTitle(conversationTitle);
-      setMode(currentMode);
-      showEmptyState();
+      showAuthError("");
+      try {
+        setConversationTitle(conversationTitle);
+        setMode(currentMode);
+        showEmptyState();
+      } catch (e) {
+        console.warn("showApp setup:", e);
+      }
       Promise.allSettled([
         loadDocuments(),
         loadMemories(),
@@ -1239,8 +1266,10 @@
     }
 
     function showAuthGate(config) {
-      authGate.hidden = false;
       appShell.hidden = true;
+      appShell.setAttribute("hidden", "");
+      authGate.hidden = false;
+      authGate.removeAttribute("hidden");
       document.body.classList.add("auth-pending");
       initGoogleButton(config);
     }
@@ -1283,7 +1312,7 @@
           }
         });
       } catch (e) {
-        alert(e.message || "Google Sign-In failed to start.");
+        showAuthError(e.message || "Google Sign-In failed to start.");
       } finally {
         googleBtn.disabled = false;
         if (googleLabel) googleLabel.textContent = prev || "Continue with Google";
@@ -1294,8 +1323,9 @@
       const label = guestBtn.textContent;
       guestBtn.disabled = true;
       guestBtn.textContent = "Starting…";
+      showAuthError("");
       try {
-        const { res, data } = await api("/auth/guest", { method: "POST", timeoutMs: 12000 });
+        const { res, data } = await api("/auth/guest", { method: "POST", timeoutMs: 8000 });
         if (!res.ok) {
           const detail = data && data.detail;
           throw new Error(typeof detail === "string" ? detail : "Guest login failed");
@@ -1303,7 +1333,8 @@
         if (!data || !data.user) throw new Error("Guest login returned no user.");
         showApp(data.user);
       } catch (e) {
-        alert(e.message || "Guest login failed. Try again in a moment.");
+        console.error("guest login:", e);
+        showAuthError(e.message || "Guest login failed. Try again in a moment.");
       } finally {
         guestBtn.disabled = false;
         guestBtn.textContent = label || "Continue as guest";
