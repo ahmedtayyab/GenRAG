@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from db import get_connection, probe_postgres, q, use_postgres
+from db import get_connection, open_sqlite, probe_postgres, prefer_sqlite_for_request, q, use_postgres
 
 HISTORY_LIMIT = 10
 SESSION_DAYS = 30
@@ -13,12 +14,12 @@ EMBED_DIM = 768
 
 
 def init_db() -> None:
-    # Fail fast to SQLite if Neon is paused/unreachable (keeps guest login working).
-    probe_postgres(timeout_sec=6.0)
+    # Fail fast to SQLite if Neon is paused/unreachable.
+    probe_postgres(timeout_sec=4.0)
     if use_postgres():
         _init_postgres()
-    else:
-        _init_sqlite()
+    # Always keep a local SQLite schema for guest sessions (never block on Neon).
+    _init_sqlite()
 
 
 def _init_postgres() -> None:
@@ -133,7 +134,8 @@ def _init_postgres() -> None:
 
 
 def _init_sqlite() -> None:
-    with get_connection() as conn:
+    conn = open_sqlite()
+    try:
         conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -196,6 +198,9 @@ def _init_sqlite() -> None:
             """
         )
         _migrate_sqlite(conn)
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _migrate_sqlite(conn) -> None:
@@ -265,20 +270,25 @@ def create_guest_user() -> dict:
     }
 
 
-def _create_guest_session_bundle_once() -> tuple[dict, str]:
-    """Create guest user + session in one DB round-trip."""
+def create_guest_session_bundle() -> tuple[dict, str]:
+    """Create guest user + session in SQLite only (never waits on Neon)."""
+    _init_sqlite()
     user_id = str(uuid4())
     session_id = str(uuid4())
-    expires = _now() + timedelta(days=SESSION_DAYS)
-    with get_connection() as conn:
+    expires = _iso(_now() + timedelta(days=SESSION_DAYS))
+    conn = open_sqlite()
+    try:
         conn.execute(
-            q("INSERT INTO users (id, is_guest, name) VALUES (%s, %s, %s)"),
-            (user_id, True if use_postgres() else 1, "Guest"),
+            "INSERT INTO users (id, is_guest, name) VALUES (?, ?, ?)",
+            (user_id, 1, "Guest"),
         )
         conn.execute(
-            q("INSERT INTO sessions (id, user_id, expires_at) VALUES (%s, %s, %s)"),
-            (session_id, user_id, expires if use_postgres() else _iso(expires)),
+            "INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)",
+            (session_id, user_id, expires),
         )
+        conn.commit()
+    finally:
+        conn.close()
     user = {
         "id": user_id,
         "google_sub": None,
@@ -289,38 +299,6 @@ def _create_guest_session_bundle_once() -> tuple[dict, str]:
         "created_at": None,
     }
     return user, session_id
-
-
-def create_guest_session_bundle() -> tuple[dict, str]:
-    """Create guest session; fall back to SQLite if Neon hangs or errors."""
-    import threading
-
-    from db import force_sqlite
-
-    box: dict = {"value": None, "error": None}
-
-    def _run() -> None:
-        try:
-            box["value"] = _create_guest_session_bundle_once()
-        except Exception as exc:  # noqa: BLE001 — surface any DB failure for fallback
-            box["error"] = exc
-
-    thread = threading.Thread(target=_run, daemon=True)
-    thread.start()
-    thread.join(9.0)
-
-    if box["value"] is not None:
-        return box["value"]
-
-    if use_postgres():
-        reason = str(box["error"] or "guest create timed out")
-        force_sqlite(reason)
-        _init_sqlite()
-        return _create_guest_session_bundle_once()
-
-    if box["error"] is not None:
-        raise box["error"]
-    raise TimeoutError("Guest session create timed out")
 
 
 def upsert_google_user(google_sub: str, email: str | None, name: str | None, picture: str | None) -> dict:
@@ -388,22 +366,15 @@ def create_session(user_id: str) -> str:
     return session_id
 
 
-def get_user_by_session(session_id: str) -> dict | None:
-    if not session_id:
-        return None
-    with get_connection() as conn:
-        row = conn.execute(
-            q(
-                """
-                SELECT u.id, u.google_sub, u.email, u.name, u.picture, u.is_guest, u.created_at,
-                       s.expires_at
-                FROM sessions s
-                JOIN users u ON u.id = s.user_id
-                WHERE s.id = %s
-                """
-            ),
-            (session_id,),
-        ).fetchone()
+def _session_user_from_conn(conn, session_id: str, postgres: bool) -> dict | None:
+    sql = """
+        SELECT u.id, u.google_sub, u.email, u.name, u.picture, u.is_guest, u.created_at,
+               s.expires_at
+        FROM sessions s
+        JOIN users u ON u.id = s.user_id
+        WHERE s.id = {}
+    """.format("%s" if postgres else "?")
+    row = conn.execute(sql, (session_id,)).fetchone()
     data = _row(row)
     if not data:
         return None
@@ -419,15 +390,58 @@ def get_user_by_session(session_id: str) -> dict | None:
         if expires_dt.tzinfo is None:
             expires_dt = expires_dt.replace(tzinfo=timezone.utc)
         if expires_dt < _now():
-            delete_session(session_id)
+            conn.execute(
+                "DELETE FROM sessions WHERE id = {}".format("%s" if postgres else "?"),
+                (session_id,),
+            )
             return None
     data["is_guest"] = bool(data.get("is_guest"))
     return data
 
 
-def delete_session(session_id: str) -> None:
+def get_user_by_session(session_id: str) -> dict | None:
+    if not session_id:
+        return None
+    # Guests live in SQLite — check it first so Neon hangs never block auth.
+    conn = open_sqlite()
+    try:
+        data = _session_user_from_conn(conn, session_id, postgres=False)
+        if data:
+            conn.commit()
+            return data
+        conn.commit()
+    finally:
+        conn.close()
+
+    if not (
+        (os.getenv("DATABASE_URL") or "").lower().startswith("postgres")
+    ):
+        return None
+    # Avoid thread-local guest override when looking up Google sessions.
+    prefer_sqlite_for_request(False)
+    if not use_postgres():
+        return None
     with get_connection() as conn:
-        conn.execute(q("DELETE FROM sessions WHERE id = %s"), (session_id,))
+        return _session_user_from_conn(conn, session_id, postgres=True)
+
+
+def delete_session(session_id: str) -> None:
+    if not session_id:
+        return
+    conn = open_sqlite()
+    try:
+        conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+        conn.commit()
+    finally:
+        conn.close()
+    prefer_sqlite_for_request(False)
+    url = (os.getenv("DATABASE_URL") or "").lower()
+    if url.startswith("postgres") and use_postgres():
+        try:
+            with get_connection() as conn:
+                conn.execute("DELETE FROM sessions WHERE id = %s", (session_id,))
+        except Exception:
+            pass
 
 
 def claim_guest_data(guest_user_id: str, google_user_id: str) -> None:

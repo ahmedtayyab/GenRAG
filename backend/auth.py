@@ -7,9 +7,9 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Annotated
+from typing import Annotated, Iterator
 
-from fastapi import Cookie, Depends, HTTPException, Response
+from fastapi import Cookie, HTTPException, Response
 
 from database import (
     claim_guest_data,
@@ -19,6 +19,7 @@ from database import (
     get_user_by_session,
     upsert_google_user,
 )
+from db import prefer_sqlite_for_request
 
 SESSION_COOKIE = "genrag_session"
 
@@ -35,7 +36,6 @@ def _cookie_secure() -> bool:
     explicit = os.getenv("COOKIE_SECURE")
     if explicit is not None:
         return explicit.lower() not in ("0", "false", "no")
-    # HTTPS platforms (Render sets RENDER=true)
     return bool(os.getenv("RENDER"))
 
 
@@ -172,21 +172,30 @@ def get_optional_user(
     genrag_session: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
 ) -> dict | None:
     if not genrag_session:
+        prefer_sqlite_for_request(False)
         return None
     user = get_user_by_session(genrag_session)
+    if user and user.get("is_guest"):
+        prefer_sqlite_for_request(True)
+    else:
+        prefer_sqlite_for_request(False)
     return _public_user(user) if user else None
 
 
 def require_user(
     genrag_session: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
-) -> dict:
+) -> Iterator[dict]:
     user = get_optional_user(genrag_session)
     if not user:
+        prefer_sqlite_for_request(False)
         raise HTTPException(
             status_code=401,
             detail="Sign in or continue as guest to use GenRAG.",
         )
-    return user
+    try:
+        yield user
+    finally:
+        prefer_sqlite_for_request(False)
 
 
 def auth_config() -> dict:

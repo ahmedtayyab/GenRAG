@@ -1,4 +1,5 @@
 # Database connection — Neon Postgres (production) or local SQLite (fallback)
+# Guest sessions always use SQLite so Neon cold-starts never block login.
 
 from __future__ import annotations
 
@@ -18,13 +19,21 @@ load_dotenv(ROOT_DIR / ".env")
 # Set True to force SQLite even if DATABASE_URL exists (Neon unreachable).
 _force_sqlite = False
 _postgres_checked = False
+_tls = threading.local()
 
 
 def database_url() -> str:
     return (os.getenv("DATABASE_URL") or "").strip()
 
 
+def prefer_sqlite_for_request(enabled: bool = True) -> None:
+    """Route this worker-thread's get_connection() calls to SQLite (guest requests)."""
+    _tls.prefer_sqlite = bool(enabled)
+
+
 def use_postgres() -> bool:
+    if getattr(_tls, "prefer_sqlite", False):
+        return False
     if _force_sqlite:
         return False
     url = database_url().lower()
@@ -48,14 +57,16 @@ def force_sqlite(reason: str = "") -> None:
     print(msg, flush=True)
 
 
-def probe_postgres(timeout_sec: float = 6.0) -> bool:
+def probe_postgres(timeout_sec: float = 4.0) -> bool:
     """Return True if Postgres accepts a connection within timeout; else force SQLite."""
     global _postgres_checked
     if _postgres_checked:
         return use_postgres()
     _postgres_checked = True
 
-    if not use_postgres():
+    if not (database_url().lower().startswith("postgres://") or database_url().lower().startswith("postgresql://")):
+        return False
+    if _force_sqlite:
         return False
 
     result: dict[str, Any] = {"ok": False, "err": ""}
@@ -73,11 +84,18 @@ def probe_postgres(timeout_sec: float = 6.0) -> bool:
 
     thread = threading.Thread(target=_connect, daemon=True)
     thread.start()
-    thread.join(timeout_sec + 1.5)
+    thread.join(timeout_sec + 1.0)
     if thread.is_alive() or not result["ok"]:
         force_sqlite(result["err"] or "connection timed out")
         return False
     return True
+
+
+def open_sqlite() -> sqlite3.Connection:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(DB_PATH), timeout=15)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 @contextmanager
@@ -89,7 +107,7 @@ def get_connection() -> Iterator[Any]:
         conn = psycopg.connect(
             _pg_url(),
             row_factory=dict_row,
-            connect_timeout=4,
+            connect_timeout=3,
         )
         try:
             yield conn
@@ -100,9 +118,7 @@ def get_connection() -> Iterator[Any]:
         finally:
             conn.close()
     else:
-        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(DB_PATH, timeout=15)
-        conn.row_factory = sqlite3.Row
+        conn = open_sqlite()
         try:
             yield conn
             conn.commit()

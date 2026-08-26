@@ -44,7 +44,7 @@ from database import (  # noqa: E402
     save_document,
     set_conversation_title,
 )
-from db import use_postgres  # noqa: E402
+from db import prefer_sqlite_for_request, use_postgres  # noqa: E402
 from debug_state import get_debug  # noqa: E402
 from embeddings import embed_texts  # noqa: E402
 from ingestion import extract_pdf_text  # noqa: E402
@@ -66,6 +66,16 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="GenRAG", description="General document learning assistant", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def reset_db_routing(request: Request, call_next):
+    prefer_sqlite_for_request(False)
+    try:
+        return await call_next(request)
+    finally:
+        prefer_sqlite_for_request(False)
+
 
 app.add_middleware(
     CORSMiddleware,
