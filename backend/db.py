@@ -1,8 +1,10 @@
 # Database connection — Neon Postgres (production) or local SQLite (fallback)
-# Guest sessions always use SQLite/memory so Neon cold-starts never block login.
+# Guest login is memory-first; guest users are upserted into Postgres before
+# document/chat writes so FK constraints succeed on the same DB as uploads.
 
 from __future__ import annotations
 
+import contextvars
 import os
 import sqlite3
 import threading
@@ -18,7 +20,10 @@ load_dotenv(ROOT_DIR / ".env")
 # Set True to force SQLite even if DATABASE_URL exists (Neon unreachable).
 _force_sqlite = False
 _postgres_checked = False
-_tls = threading.local()
+# ContextVar so async routes see the same flag as sync Depends (thread-local did not).
+_prefer_sqlite: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "prefer_sqlite", default=False
+)
 
 
 def database_url() -> str:
@@ -36,15 +41,21 @@ def sqlite_path() -> Path:
 
 
 def prefer_sqlite_for_request(enabled: bool = True) -> None:
-    """Route this worker-thread's get_connection() calls to SQLite (guest requests)."""
-    _tls.prefer_sqlite = bool(enabled)
+    """Prefer SQLite for this request context (guests / fallbacks)."""
+    _prefer_sqlite.set(bool(enabled))
 
 
 def use_postgres() -> bool:
-    if getattr(_tls, "prefer_sqlite", False):
+    if _prefer_sqlite.get():
         return False
     if _force_sqlite:
         return False
+    url = database_url().lower()
+    return url.startswith("postgres://") or url.startswith("postgresql://")
+
+
+def postgres_configured() -> bool:
+    """True when DATABASE_URL points at Postgres (ignores prefer_sqlite / force flags)."""
     url = database_url().lower()
     return url.startswith("postgres://") or url.startswith("postgresql://")
 
@@ -107,6 +118,29 @@ def open_sqlite() -> sqlite3.Connection:
     conn = sqlite3.connect(str(path), timeout=5)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+@contextmanager
+def postgres_connection(connect_timeout: int = 5) -> Iterator[Any]:
+    """Always open Postgres from DATABASE_URL (ignores prefer_sqlite / force_sqlite)."""
+    if not postgres_configured():
+        raise RuntimeError("DATABASE_URL is not a Postgres URL")
+    import psycopg
+    from psycopg.rows import dict_row
+
+    conn = psycopg.connect(
+        _pg_url(),
+        row_factory=dict_row,
+        connect_timeout=connect_timeout,
+    )
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 @contextmanager

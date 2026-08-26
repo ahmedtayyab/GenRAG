@@ -16,6 +16,7 @@ from database import (
     create_guest_session_bundle,
     create_session,
     delete_session,
+    ensure_user_row,
     get_user_by_session,
     upsert_google_user,
 )
@@ -171,14 +172,20 @@ def _public_user(user: dict) -> dict:
 def get_optional_user(
     genrag_session: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
 ) -> dict | None:
+    # Always use the primary DB (Postgres when configured). Routing guests to
+    # SQLite via thread-local broke async uploads: the flag was set on a
+    # worker thread while document writes ran on the event-loop thread → FK
+    # errors against Postgres users.
+    prefer_sqlite_for_request(False)
     if not genrag_session:
-        prefer_sqlite_for_request(False)
         return None
     user = get_user_by_session(genrag_session)
     if user and user.get("is_guest"):
-        prefer_sqlite_for_request(True)
-    else:
-        prefer_sqlite_for_request(False)
+        try:
+            ensure_user_row(user)
+        except Exception as exc:  # noqa: BLE001
+            # Don't break /auth/me if Neon is briefly unreachable.
+            print(f"GenRAG: guest ensure on /me skipped ({exc})", flush=True)
     return _public_user(user) if user else None
 
 
@@ -192,6 +199,14 @@ def require_user(
             status_code=401,
             detail="Sign in or continue as guest to use GenRAG.",
         )
+    if user.get("is_guest"):
+        try:
+            ensure_user_row(user)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(
+                status_code=503,
+                detail=f"Could not sync guest account: {exc}",
+            ) from exc
     try:
         yield user
     finally:

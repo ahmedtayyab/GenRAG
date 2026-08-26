@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from database import EMBED_DIM
-from db import get_connection, q, use_postgres
+from db import get_connection, postgres_configured, postgres_connection, q, use_postgres
 
 
 @dataclass
@@ -55,8 +55,16 @@ def save_document_vectors(
     chunks: list[StoredChunk],
     user_id: str,
 ) -> None:
-    if use_postgres():
-        with get_connection() as conn:
+    if postgres_configured():
+        with postgres_connection(connect_timeout=8) as conn:
+            conn.execute(
+                """
+                INSERT INTO users (id, is_guest, name)
+                VALUES (%s, TRUE, %s)
+                ON CONFLICT (id) DO NOTHING
+                """,
+                (user_id, "Guest"),
+            )
             conn.execute(
                 "DELETE FROM document_chunks WHERE document_id = %s AND user_id = %s",
                 (document_id, user_id),

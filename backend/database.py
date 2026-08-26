@@ -6,7 +6,17 @@ import os
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from db import get_connection, open_sqlite, probe_postgres, prefer_sqlite_for_request, q, use_postgres
+from db import (
+    database_url,
+    get_connection,
+    open_sqlite,
+    postgres_configured,
+    postgres_connection,
+    probe_postgres,
+    prefer_sqlite_for_request,
+    q,
+    use_postgres,
+)
 
 HISTORY_LIMIT = 10
 SESSION_DAYS = 30
@@ -291,8 +301,57 @@ def create_guest_user() -> dict:
 _MEM_SESSIONS: dict[str, dict] = {}
 
 
+def ensure_user_row(user: dict) -> None:
+    """Upsert user into the DB that documents use (Postgres when configured).
+
+    Always hits Postgres via DATABASE_URL when set — ignores prefer_sqlite so
+    guest memory sessions cannot leave FK-orphan uploads against Neon.
+    Raises on failure (do not swallow).
+    """
+    if not user or not user.get("id"):
+        raise ValueError("ensure_user_row: missing user id")
+
+    user_id = str(user["id"])
+    is_guest = bool(user.get("is_guest"))
+    name = user.get("name") or ("Guest" if is_guest else "User")
+    email = user.get("email")
+    picture = user.get("picture")
+
+    if postgres_configured():
+        with postgres_connection(connect_timeout=8) as conn:
+            conn.execute(
+                """
+                INSERT INTO users (id, is_guest, name, email, picture)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (id) DO NOTHING
+                """,
+                (user_id, is_guest, name, email, picture),
+            )
+            row = conn.execute(
+                "SELECT id FROM users WHERE id = %s",
+                (user_id,),
+            ).fetchone()
+            if not row:
+                raise RuntimeError(f"ensure_user_row: user {user_id} missing after upsert")
+        return
+
+    _init_sqlite()
+    conn = open_sqlite()
+    try:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO users (id, is_guest, name, email, picture)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (user_id, 1 if is_guest else 0, name, email, picture),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def create_guest_session_bundle() -> tuple[dict, str]:
-    """Create guest user + session instantly (memory first; SQLite in background)."""
+    """Create guest user + session instantly (memory first; DBs in background)."""
     import threading
 
     user_id = str(uuid4())
@@ -309,9 +368,10 @@ def create_guest_session_bundle() -> tuple[dict, str]:
     _MEM_SESSIONS[session_id] = dict(user)
 
     def _persist() -> None:
+        expires_dt = _now() + timedelta(days=SESSION_DAYS)
+        expires_iso = _iso(expires_dt)
         try:
             _init_sqlite()
-            expires = _iso(_now() + timedelta(days=SESSION_DAYS))
             conn = open_sqlite()
             try:
                 conn.execute(
@@ -320,13 +380,38 @@ def create_guest_session_bundle() -> tuple[dict, str]:
                 )
                 conn.execute(
                     "INSERT OR REPLACE INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)",
-                    (session_id, user_id, expires),
+                    (session_id, user_id, expires_iso),
                 )
                 conn.commit()
             finally:
                 conn.close()
         except Exception as exc:  # noqa: BLE001
             print(f"GenRAG: guest sqlite persist skipped ({exc})", flush=True)
+
+        if not postgres_configured():
+            return
+        try:
+            with postgres_connection(connect_timeout=8) as conn:
+                conn.execute(
+                    """
+                    INSERT INTO users (id, is_guest, name)
+                    VALUES (%s, TRUE, %s)
+                    ON CONFLICT (id) DO NOTHING
+                    """,
+                    (user_id, "Guest"),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO sessions (id, user_id, expires_at)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (id) DO UPDATE SET
+                        user_id = EXCLUDED.user_id,
+                        expires_at = EXCLUDED.expires_at
+                    """,
+                    (session_id, user_id, expires_dt),
+                )
+        except Exception as exc:  # noqa: BLE001
+            print(f"GenRAG: guest postgres persist skipped ({exc})", flush=True)
 
     threading.Thread(target=_persist, daemon=True).start()
     return user, session_id
@@ -810,8 +895,18 @@ def save_document(
     user_id: str,
     content_hash: str | None = None,
 ) -> None:
-    with get_connection() as conn:
-        if use_postgres():
+    # When Neon is configured, always write documents there — and upsert the
+    # owning user in the same transaction so guest memory sessions cannot FK-fail.
+    if postgres_configured():
+        with postgres_connection(connect_timeout=8) as conn:
+            conn.execute(
+                """
+                INSERT INTO users (id, is_guest, name)
+                VALUES (%s, TRUE, %s)
+                ON CONFLICT (id) DO NOTHING
+                """,
+                (user_id, "Guest"),
+            )
             conn.execute(
                 """
                 INSERT INTO documents
@@ -826,15 +921,23 @@ def save_document(
                 """,
                 (doc_id, user_id, filename, page_count, chunk_count, preview[:2000], content_hash),
             )
-        else:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO documents
-                    (id, user_id, filename, page_count, chunk_count, extracted_preview, content_hash)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (doc_id, user_id, filename, page_count, chunk_count, preview[:2000], content_hash),
-            )
+        return
+
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO users (id, is_guest, name) VALUES (?, 1, ?)
+            """,
+            (user_id, "Guest"),
+        )
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO documents
+                (id, user_id, filename, page_count, chunk_count, extracted_preview, content_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (doc_id, user_id, filename, page_count, chunk_count, preview[:2000], content_hash),
+        )
 
 
 def list_documents(user_id: str) -> list[dict]:
