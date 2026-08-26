@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from db import get_connection, q, use_postgres
+from db import get_connection, probe_postgres, q, use_postgres
 
 HISTORY_LIMIT = 10
 SESSION_DAYS = 30
@@ -13,6 +13,8 @@ EMBED_DIM = 768
 
 
 def init_db() -> None:
+    # Fail fast to SQLite if Neon is paused/unreachable (keeps guest login working).
+    probe_postgres(timeout_sec=6.0)
     if use_postgres():
         _init_postgres()
     else:

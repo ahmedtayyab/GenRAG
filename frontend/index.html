@@ -35,8 +35,19 @@
         <p class="auth-lead">Upload PDFs, ask grounded questions, and keep your library across sessions.</p>
 
         <div class="auth-actions">
-          <div id="google-btn-wrap" class="google-btn-wrap"></div>
-          <p id="google-unavailable" class="auth-note" hidden>Google Sign-In isn’t configured yet. You can still continue as a guest.</p>
+          <button type="button" class="btn-google" id="google-signin-btn" hidden>
+            <span class="btn-google-icon" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+                <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+              </svg>
+            </span>
+            Continue with Google
+          </button>
+          <div id="google-btn-wrap" class="google-btn-wrap" hidden></div>
+          <p id="google-unavailable" class="auth-note" hidden></p>
 
           <div class="auth-divider" role="presentation">
             <span>or</span>
@@ -217,11 +228,28 @@
         delete opts.json;
       }
       opts.headers = headers;
-      const res = await fetch(`${API_BASE}${path}`, opts);
-      let data = null;
-      const text = await res.text();
-      try { data = text ? JSON.parse(text) : null; } catch { data = { detail: text }; }
-      return { res, data };
+      const timeoutMs = opts.timeoutMs != null ? opts.timeoutMs : 20000;
+      delete opts.timeoutMs;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      if (opts.signal) {
+        opts.signal.addEventListener("abort", () => controller.abort());
+      }
+      opts.signal = controller.signal;
+      try {
+        const res = await fetch(`${API_BASE}${path}`, opts);
+        let data = null;
+        const text = await res.text();
+        try { data = text ? JSON.parse(text) : null; } catch { data = { detail: text }; }
+        return { res, data };
+      } catch (e) {
+        if (e && e.name === "AbortError") {
+          throw new Error("Request timed out. Is the backend running? If you use Neon, check it is Active.");
+        }
+        throw e;
+      } finally {
+        clearTimeout(timer);
+      }
     }
 
     let currentUser = null;
@@ -789,9 +817,13 @@
     }
 
     async function loadDocuments() {
-      const { res, data } = await api("/documents");
-      if (!res.ok) return;
-      documentsCache = (data && data.documents) || [];
+      try {
+        const { res, data } = await api("/documents", { timeoutMs: 15000 });
+        if (!res.ok) return;
+        documentsCache = (data && data.documents) || [];
+      } catch {
+        return;
+      }
 
       const validIds = new Set(documentsCache.map((d) => d.id));
       const readyIds = new Set(
@@ -1069,50 +1101,76 @@
       setConversationTitle(conversationTitle);
       setMode(currentMode);
       showEmptyState();
-      loadDocuments();
-      loadMemories();
-      loadConversations().then(() => {
-        if (conversationId) openConversation(conversationId, { silent: true });
-      });
+      Promise.allSettled([
+        loadDocuments(),
+        loadMemories(),
+        loadConversations().then(() => {
+          if (conversationId) return openConversation(conversationId, { silent: true });
+        }),
+      ]).catch(() => {});
     }
 
     let authConfigCache = {};
+    let googleReady = false;
+
+    async function completeGoogleSignIn(credential) {
+      const { res, data } = await api("/auth/google", {
+        method: "POST",
+        json: { credential, merge_guest: true },
+        timeoutMs: 30000,
+      });
+      if (!res.ok) {
+        throw new Error((data && data.detail) || "Google sign-in failed.");
+      }
+      localStorage.removeItem("genrag_conversation_id");
+      localStorage.removeItem("genrag_document_ids");
+      conversationId = null;
+      selectedDocumentIds = [];
+      showApp(data.user);
+    }
 
     function initGoogleButton(config) {
       authConfigCache = config || {};
       const googleWrap = document.getElementById("google-btn-wrap");
+      const googleBtn = document.getElementById("google-signin-btn");
       const googleUnavailable = document.getElementById("google-unavailable");
-      googleWrap.innerHTML = "";
-      if (config && config.google_enabled && config.google_client_id && window.google) {
-        googleUnavailable.hidden = true;
+      googleReady = false;
+
+      if (!(config && config.google_enabled && config.google_client_id)) {
+        googleBtn.hidden = true;
+        googleWrap.hidden = true;
+        googleUnavailable.hidden = false;
+        googleUnavailable.textContent = "Google Sign-In isn’t configured yet. You can still continue as a guest.";
+        return;
+      }
+
+      googleUnavailable.hidden = true;
+      googleBtn.hidden = false;
+
+      const wireGoogle = () => {
+        if (!window.google || !window.google.accounts || !window.google.accounts.id) return false;
         window.google.accounts.id.initialize({
           client_id: config.google_client_id,
           callback: async (response) => {
-            const { res, data } = await api("/auth/google", {
-              method: "POST",
-              json: { credential: response.credential, merge_guest: true },
-            });
-            if (!res.ok) {
-              alert((data && data.detail) || "Google sign-in failed.");
-              return;
+            try {
+              await completeGoogleSignIn(response.credential);
+            } catch (e) {
+              alert(e.message || "Google sign-in failed.");
             }
-            localStorage.removeItem("genrag_conversation_id");
-            localStorage.removeItem("genrag_document_ids");
-            conversationId = null;
-            selectedDocumentIds = [];
-            showApp(data.user);
           },
+          auto_select: false,
+          cancel_on_tap_outside: true,
         });
-        window.google.accounts.id.renderButton(googleWrap, {
-          theme: document.documentElement.getAttribute("data-theme") === "light" ? "outline" : "filled_black",
-          size: "large",
-          width: Math.min(340, googleWrap.clientWidth || 340),
-          text: "continue_with",
-          shape: "pill",
-          logo_alignment: "left",
-        });
-      } else {
-        googleUnavailable.hidden = false;
+        googleReady = true;
+        return true;
+      };
+
+      if (!wireGoogle()) {
+        let tries = 0;
+        const timer = setInterval(() => {
+          tries += 1;
+          if (wireGoogle() || tries > 40) clearInterval(timer);
+        }, 150);
       }
     }
 
@@ -1128,24 +1186,53 @@
         alert("Add GOOGLE_CLIENT_ID on the server to enable Google Sign-In.");
         return;
       }
+      const btn = document.getElementById("google-signin-btn");
+      if (btn && !authGate.hidden) {
+        btn.click();
+        return;
+      }
       showAuthGate(authConfigCache);
     }
 
+    document.getElementById("google-signin-btn").addEventListener("click", () => {
+      if (!authConfigCache.google_client_id) {
+        alert("Google Sign-In is not configured.");
+        return;
+      }
+      if (!googleReady || !window.google || !window.google.accounts) {
+        alert("Google script is still loading. Wait a second and try again.");
+        return;
+      }
+      window.google.accounts.id.prompt((notification) => {
+        if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
+          const reason = notification.getNotDisplayedReason?.() || notification.getSkippedReason?.() || "blocked";
+          alert(
+            "Google Sign-In could not open (" + reason + ").\n\n" +
+            "In Google Cloud Console → Credentials → your OAuth Web client, add this exact origin:\n" +
+            location.origin + "\n\nto Authorized JavaScript origins, then save and hard-refresh."
+          );
+        }
+      });
+    });
+
     guestBtn.addEventListener("click", async () => {
+      const label = guestBtn.textContent;
       guestBtn.disabled = true;
+      guestBtn.textContent = "Starting…";
       try {
-        const { res, data } = await api("/auth/guest", { method: "POST" });
+        const { res, data } = await api("/auth/guest", { method: "POST", timeoutMs: 25000 });
         if (!res.ok) throw new Error((data && data.detail) || "Guest login failed");
         showApp(data.user);
       } catch (e) {
         alert(e.message || "Guest login failed");
       } finally {
         guestBtn.disabled = false;
+        guestBtn.textContent = label || "Continue as guest";
       }
     });
 
     logoutBtn.addEventListener("click", async () => {
-      await api("/auth/logout", { method: "POST" });
+      await api("/auth/logout", { method: "POST", timeoutMs: 10000 });
       localStorage.removeItem("genrag_conversation_id");
       localStorage.removeItem("genrag_conversation_title");
       localStorage.removeItem("genrag_document_ids");
@@ -1160,21 +1247,17 @@
 
     async function boot() {
       try {
-        const { data: cfg } = await api("/auth/config");
+        const { data: cfg } = await api("/auth/config", { timeoutMs: 10000 });
         authConfigCache = cfg || {};
-        const { res, data } = await api("/auth/me");
+        const { res, data } = await api("/auth/me", { timeoutMs: 10000 });
         if (res.ok && data && data.user) {
           showApp(data.user);
           return;
         }
-        let tries = 0;
-        while (!window.google && tries < 25) {
-          await new Promise((r) => setTimeout(r, 100));
-          tries += 1;
-        }
         showAuthGate(authConfigCache);
-      } catch {
+      } catch (e) {
         showAuthGate({});
+        console.warn("Auth boot failed:", e);
       }
     }
 
