@@ -23,20 +23,32 @@
 </head>
 <body class="auth-pending">
   <div id="auth-gate" class="auth-gate" hidden>
-    <div class="auth-card">
-      <img class="auth-logo brand-logo-light" src="assets/genrag-logo.png" alt="GenRAG">
-      <img class="auth-logo brand-logo-dark" src="assets/genrag-logo-dark.png" alt="GenRAG">
-      <h1>Document learning workspace</h1>
-      <p class="auth-lead">Upload PDFs, ask grounded questions, and keep your library across sessions.</p>
+    <div class="auth-shell">
+      <div class="auth-brand">
+        <img class="auth-logo brand-logo-light" src="assets/genrag-logo.png" alt="GenRAG">
+        <img class="auth-logo brand-logo-dark" src="assets/genrag-logo-dark.png" alt="GenRAG">
+        <p class="auth-eyebrow">Document learning workspace</p>
+      </div>
 
-      <div id="google-btn-wrap" class="google-btn-wrap"></div>
-      <p id="google-unavailable" class="muted-note" hidden>Google Sign-In is not configured yet. You can still continue as a guest.</p>
+      <div class="auth-card">
+        <h1>Sign in to GenRAG</h1>
+        <p class="auth-lead">Upload PDFs, ask grounded questions, and keep your library across sessions.</p>
 
-      <button type="button" class="btn-guest" id="guest-btn">Continue as guest</button>
+        <div class="auth-actions">
+          <div id="google-btn-wrap" class="google-btn-wrap"></div>
+          <p id="google-unavailable" class="auth-note" hidden>Google Sign-In isn’t configured yet. You can still continue as a guest.</p>
 
-      <div class="guest-disclaimer">
-        <strong>Guest mode disclaimer</strong>
-        <p>Without signing in, your chats, uploaded documents, and memory are temporary. They can be lost when this browser session ends, you clear site data, or the free server restarts. Sign in with Google to keep your workspace.</p>
+          <div class="auth-divider" role="presentation">
+            <span>or</span>
+          </div>
+
+          <button type="button" class="btn-guest" id="guest-btn">Continue as guest</button>
+        </div>
+
+        <aside class="guest-disclaimer" aria-label="Guest mode disclaimer">
+          <p class="guest-disclaimer-title">Guest mode</p>
+          <p>Chats, uploads, and memory stay temporary. They can be lost when this session ends, you clear site data, or the free server restarts. Sign in with Google to keep your workspace.</p>
+        </aside>
       </div>
     </div>
   </div>
@@ -97,22 +109,27 @@
       <div class="sidebar-footer">
         <div class="account-block" id="account-block">
           <div class="account-info">
-            <img class="account-avatar" id="account-avatar" alt="" hidden>
+            <div class="account-avatar-wrap">
+              <img class="account-avatar" id="account-avatar" alt="" hidden>
+              <span class="account-avatar-fallback" id="account-avatar-fallback" aria-hidden="true">G</span>
+            </div>
             <div class="account-text">
               <span class="account-name" id="account-name">Guest</span>
               <span class="account-meta" id="account-meta">Temporary workspace</span>
             </div>
           </div>
           <div class="account-actions">
-            <button type="button" class="text-btn" id="upgrade-btn" hidden>Keep with Google</button>
-            <button type="button" class="text-btn" id="logout-btn">Sign out</button>
+            <button type="button" class="account-link" id="upgrade-btn" hidden>Keep with Google</button>
+            <button type="button" class="account-link" id="logout-btn">Sign out</button>
           </div>
         </div>
-        <div class="sidebar-footer-left">
-          <button type="button" class="text-btn" id="memory-btn">Memory · <span id="memory-count">0</span></button>
-          <button type="button" class="text-btn" id="debug-btn">Debug</button>
+        <div class="sidebar-footer-tools">
+          <div class="sidebar-footer-left">
+            <button type="button" class="text-btn" id="memory-btn">Memory · <span id="memory-count">0</span></button>
+            <button type="button" class="text-btn" id="debug-btn">Debug</button>
+          </div>
+          <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Toggle color theme">Light</button>
         </div>
-        <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Toggle color theme">Light</button>
       </div>
     </aside>
 
@@ -131,8 +148,13 @@
       </header>
 
       <div id="guest-banner" class="guest-banner" hidden>
-        You’re in guest mode — chats and uploads won’t persist unless you sign in.
-        <button type="button" class="text-btn" id="banner-upgrade-btn">Keep with Google</button>
+        <div class="guest-banner-inner">
+          <p class="guest-banner-text">
+            <span class="guest-banner-label">Guest</span>
+            Chats and uploads won’t persist unless you sign in.
+          </p>
+          <button type="button" class="guest-banner-btn" id="banner-upgrade-btn">Keep with Google</button>
+        </div>
       </div>
       <div id="messages" class="messages"></div>
 
@@ -1023,12 +1045,17 @@
       accountMeta.textContent = user.is_guest
         ? "Temporary workspace"
         : (user.email || "Signed in with Google");
+      const fallback = document.getElementById("account-avatar-fallback");
+      const initial = (user.name || (user.is_guest ? "G" : "U")).trim().charAt(0).toUpperCase();
+      if (fallback) fallback.textContent = initial || "G";
       if (user.picture) {
         accountAvatar.src = user.picture;
         accountAvatar.hidden = false;
+        if (fallback) fallback.hidden = true;
       } else {
         accountAvatar.hidden = true;
         accountAvatar.removeAttribute("src");
+        if (fallback) fallback.hidden = false;
       }
       upgradeBtn.hidden = !user.is_guest;
       guestBanner.hidden = !user.is_guest;
@@ -1079,9 +1106,10 @@
         window.google.accounts.id.renderButton(googleWrap, {
           theme: document.documentElement.getAttribute("data-theme") === "light" ? "outline" : "filled_black",
           size: "large",
-          width: 320,
+          width: Math.min(340, googleWrap.clientWidth || 340),
           text: "continue_with",
-          shape: "rectangular",
+          shape: "pill",
+          logo_alignment: "left",
         });
       } else {
         googleUnavailable.hidden = false;
