@@ -19,7 +19,16 @@
   <meta name="theme-color" content="#001B5E">
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script>
+    window.__gisReady = new Promise(function (resolve) {
+      window.__resolveGis = resolve;
+      // Already present (cached / race)
+      if (window.google && window.google.accounts && window.google.accounts.id) resolve();
+    });
+  </script>
+  <script src="https://accounts.google.com/gsi/client" async defer
+    onload="window.__resolveGis && window.__resolveGis()"
+    onerror="window.__gisLoadError = true; window.__resolveGis && window.__resolveGis()"></script>
 </head>
 <body class="auth-pending">
   <div id="auth-gate" class="auth-gate" hidden>
@@ -35,7 +44,7 @@
         <p class="auth-lead">Upload PDFs, ask grounded questions, and keep your library across sessions.</p>
 
         <div class="auth-actions">
-          <button type="button" class="btn-google" id="google-signin-btn" hidden>
+          <button type="button" class="btn-google" id="google-signin-btn" disabled>
             <span class="btn-google-icon" aria-hidden="true">
               <svg width="18" height="18" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
                 <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
@@ -44,7 +53,7 @@
                 <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
               </svg>
             </span>
-            Continue with Google
+            <span id="google-signin-label">Loading Google…</span>
           </button>
           <div id="google-btn-wrap" class="google-btn-wrap" hidden></div>
           <p id="google-unavailable" class="auth-note" hidden></p>
@@ -1129,10 +1138,18 @@
       showApp(data.user);
     }
 
-    function initGoogleButton(config) {
+    function waitForGis(timeoutMs = 15000) {
+      return Promise.race([
+        window.__gisReady || Promise.resolve(),
+        new Promise((resolve) => setTimeout(resolve, timeoutMs)),
+      ]).then(() => !!(window.google && window.google.accounts && window.google.accounts.id));
+    }
+
+    async function initGoogleButton(config) {
       authConfigCache = config || {};
       const googleWrap = document.getElementById("google-btn-wrap");
       const googleBtn = document.getElementById("google-signin-btn");
+      const googleLabel = document.getElementById("google-signin-label");
       const googleUnavailable = document.getElementById("google-unavailable");
       googleReady = false;
 
@@ -1146,9 +1163,21 @@
 
       googleUnavailable.hidden = true;
       googleBtn.hidden = false;
+      googleBtn.disabled = true;
+      googleWrap.hidden = true;
+      if (googleLabel) googleLabel.textContent = "Loading Google…";
 
-      const wireGoogle = () => {
-        if (!window.google || !window.google.accounts || !window.google.accounts.id) return false;
+      const ready = await waitForGis(15000);
+      if (!ready || window.__gisLoadError) {
+        googleBtn.disabled = true;
+        if (googleLabel) googleLabel.textContent = "Google unavailable";
+        googleUnavailable.hidden = false;
+        googleUnavailable.textContent =
+          "Couldn’t load Google Sign-In (blocked network/extension?). You can still continue as a guest.";
+        return;
+      }
+
+      try {
         window.google.accounts.id.initialize({
           client_id: config.google_client_id,
           callback: async (response) => {
@@ -1160,17 +1189,32 @@
           },
           auto_select: false,
           cancel_on_tap_outside: true,
+          use_fedcm_for_prompt: true,
         });
         googleReady = true;
-        return true;
-      };
 
-      if (!wireGoogle()) {
-        let tries = 0;
-        const timer = setInterval(() => {
-          tries += 1;
-          if (wireGoogle() || tries > 40) clearInterval(timer);
-        }, 150);
+        // Official GIS button is more reliable than One Tap prompt() for custom clicks.
+        googleWrap.innerHTML = "";
+        googleWrap.hidden = false;
+        const width = Math.max(280, Math.min(googleWrap.clientWidth || 360, 400));
+        window.google.accounts.id.renderButton(googleWrap, {
+          type: "standard",
+          theme: "outline",
+          size: "large",
+          text: "continue_with",
+          shape: "pill",
+          logo_alignment: "left",
+          width,
+        });
+        googleBtn.hidden = true;
+      } catch (e) {
+        console.warn("Google init failed:", e);
+        googleBtn.disabled = false;
+        if (googleLabel) googleLabel.textContent = "Continue with Google";
+        googleUnavailable.hidden = false;
+        googleUnavailable.textContent =
+          "Google Sign-In failed to initialize. Check Authorized JavaScript origins includes " +
+          location.origin;
       }
     }
 
@@ -1186,22 +1230,52 @@
         alert("Add GOOGLE_CLIENT_ID on the server to enable Google Sign-In.");
         return;
       }
-      const btn = document.getElementById("google-signin-btn");
-      if (btn && !authGate.hidden) {
-        btn.click();
+      if (!authGate.hidden) {
+        const wrap = document.getElementById("google-btn-wrap");
+        const iframe = wrap && wrap.querySelector("iframe");
+        if (iframe) {
+          iframe.click();
+          return;
+        }
+        const btn = document.getElementById("google-signin-btn");
+        if (btn && !btn.hidden) btn.click();
         return;
       }
       showAuthGate(authConfigCache);
     }
 
-    document.getElementById("google-signin-btn").addEventListener("click", () => {
+    document.getElementById("google-signin-btn").addEventListener("click", async () => {
       if (!authConfigCache.google_client_id) {
         alert("Google Sign-In is not configured.");
         return;
       }
-      if (!googleReady || !window.google || !window.google.accounts) {
-        alert("Google script is still loading. Wait a second and try again.");
-        return;
+      if (!googleReady) {
+        const ready = await waitForGis(8000);
+        if (!ready || !window.google?.accounts?.id) {
+          alert(
+            "Google Sign-In didn’t load. Check your network/ad-blocker, or add this origin in Google Cloud:\n" +
+            location.origin
+          );
+          return;
+        }
+        try {
+          window.google.accounts.id.initialize({
+            client_id: authConfigCache.google_client_id,
+            callback: async (response) => {
+              try {
+                await completeGoogleSignIn(response.credential);
+              } catch (e) {
+                alert(e.message || "Google sign-in failed.");
+              }
+            },
+            auto_select: false,
+            use_fedcm_for_prompt: true,
+          });
+          googleReady = true;
+        } catch (e) {
+          alert(e.message || "Google Sign-In failed to start.");
+          return;
+        }
       }
       window.google.accounts.id.prompt((notification) => {
         if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
@@ -1220,11 +1294,12 @@
       guestBtn.disabled = true;
       guestBtn.textContent = "Starting…";
       try {
-        const { res, data } = await api("/auth/guest", { method: "POST", timeoutMs: 25000 });
+        const { res, data } = await api("/auth/guest", { method: "POST", timeoutMs: 20000 });
         if (!res.ok) throw new Error((data && data.detail) || "Guest login failed");
+        if (!data || !data.user) throw new Error("Guest login returned no user.");
         showApp(data.user);
       } catch (e) {
-        alert(e.message || "Guest login failed");
+        alert(e.message || "Guest login failed. Try again in a moment.");
       } finally {
         guestBtn.disabled = false;
         guestBtn.textContent = label || "Continue as guest";

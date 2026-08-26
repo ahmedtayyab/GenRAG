@@ -265,8 +265,8 @@ def create_guest_user() -> dict:
     }
 
 
-def create_guest_session_bundle() -> tuple[dict, str]:
-    """Create guest user + session in one DB round-trip (avoids Neon pooler stalls)."""
+def _create_guest_session_bundle_once() -> tuple[dict, str]:
+    """Create guest user + session in one DB round-trip."""
     user_id = str(uuid4())
     session_id = str(uuid4())
     expires = _now() + timedelta(days=SESSION_DAYS)
@@ -289,6 +289,38 @@ def create_guest_session_bundle() -> tuple[dict, str]:
         "created_at": None,
     }
     return user, session_id
+
+
+def create_guest_session_bundle() -> tuple[dict, str]:
+    """Create guest session; fall back to SQLite if Neon hangs or errors."""
+    import threading
+
+    from db import force_sqlite
+
+    box: dict = {"value": None, "error": None}
+
+    def _run() -> None:
+        try:
+            box["value"] = _create_guest_session_bundle_once()
+        except Exception as exc:  # noqa: BLE001 — surface any DB failure for fallback
+            box["error"] = exc
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    thread.join(9.0)
+
+    if box["value"] is not None:
+        return box["value"]
+
+    if use_postgres():
+        reason = str(box["error"] or "guest create timed out")
+        force_sqlite(reason)
+        _init_sqlite()
+        return _create_guest_session_bundle_once()
+
+    if box["error"] is not None:
+        raise box["error"]
+    raise TimeoutError("Guest session create timed out")
 
 
 def upsert_google_user(google_sub: str, email: str | None, name: str | None, picture: str | None) -> dict:

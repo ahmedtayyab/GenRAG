@@ -89,7 +89,7 @@ def get_connection() -> Iterator[Any]:
         conn = psycopg.connect(
             _pg_url(),
             row_factory=dict_row,
-            connect_timeout=8,
+            connect_timeout=4,
         )
         try:
             yield conn
