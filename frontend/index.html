@@ -1121,11 +1121,17 @@
 
     let authConfigCache = {};
     let googleReady = false;
+    let googleCodeClient = null;
 
-    async function completeGoogleSignIn(credential) {
+    async function completeGoogleSignIn(payload) {
+      const body = { merge_guest: true };
+      if (payload && payload.code) body.code = payload.code;
+      else if (payload && payload.credential) body.credential = payload.credential;
+      else throw new Error("Missing Google credential.");
+
       const { res, data } = await api("/auth/google", {
         method: "POST",
-        json: { credential, merge_guest: true },
+        json: body,
         timeoutMs: 30000,
       });
       if (!res.ok) {
@@ -1142,7 +1148,7 @@
       return Promise.race([
         window.__gisReady || Promise.resolve(),
         new Promise((resolve) => setTimeout(resolve, timeoutMs)),
-      ]).then(() => !!(window.google && window.google.accounts && window.google.accounts.id));
+      ]).then(() => !!(window.google && window.google.accounts));
     }
 
     async function initGoogleButton(config) {
@@ -1152,6 +1158,7 @@
       const googleLabel = document.getElementById("google-signin-label");
       const googleUnavailable = document.getElementById("google-unavailable");
       googleReady = false;
+      googleCodeClient = null;
 
       if (!(config && config.google_enabled && config.google_client_id)) {
         googleBtn.hidden = true;
@@ -1168,7 +1175,7 @@
       if (googleLabel) googleLabel.textContent = "Loading Google…";
 
       const ready = await waitForGis(15000);
-      if (!ready || window.__gisLoadError) {
+      if (!ready || window.__gisLoadError || !window.google?.accounts) {
         googleBtn.disabled = true;
         if (googleLabel) googleLabel.textContent = "Google unavailable";
         googleUnavailable.hidden = false;
@@ -1178,22 +1185,47 @@
       }
 
       try {
+        // Popup OAuth code flow — reliable when JS origins are set (uses client secret on server).
+        if (config.google_code_flow && window.google.accounts.oauth2) {
+          googleCodeClient = window.google.accounts.oauth2.initCodeClient({
+            client_id: config.google_client_id,
+            scope: "openid email profile",
+            ux_mode: "popup",
+            callback: async (response) => {
+              if (response.error) {
+                alert(response.error_description || response.error || "Google sign-in was cancelled.");
+                return;
+              }
+              try {
+                await completeGoogleSignIn({ code: response.code });
+              } catch (e) {
+                alert(e.message || "Google sign-in failed.");
+              }
+            },
+          });
+          googleReady = true;
+          googleBtn.disabled = false;
+          if (googleLabel) googleLabel.textContent = "Continue with Google";
+          return;
+        }
+
+        // Fallback: GIS ID button (needs only client ID; less reliable with FedCM/One Tap).
+        if (!window.google.accounts.id) {
+          throw new Error("Google Identity Services loaded without id/oauth2 APIs.");
+        }
         window.google.accounts.id.initialize({
           client_id: config.google_client_id,
           callback: async (response) => {
             try {
-              await completeGoogleSignIn(response.credential);
+              await completeGoogleSignIn({ credential: response.credential });
             } catch (e) {
               alert(e.message || "Google sign-in failed.");
             }
           },
           auto_select: false,
           cancel_on_tap_outside: true,
-          use_fedcm_for_prompt: true,
         });
         googleReady = true;
-
-        // Official GIS button is more reliable than One Tap prompt() for custom clicks.
         googleWrap.innerHTML = "";
         googleWrap.hidden = false;
         const width = Math.max(280, Math.min(googleWrap.clientWidth || 360, 400));
@@ -1207,13 +1239,16 @@
           width,
         });
         googleBtn.hidden = true;
+        googleUnavailable.hidden = false;
+        googleUnavailable.textContent =
+          "Add GOOGLE_CLIENT_SECRET on the server for the custom Google button (popup sign-in).";
       } catch (e) {
         console.warn("Google init failed:", e);
         googleBtn.disabled = false;
         if (googleLabel) googleLabel.textContent = "Continue with Google";
         googleUnavailable.hidden = false;
         googleUnavailable.textContent =
-          "Google Sign-In failed to initialize. Check Authorized JavaScript origins includes " +
+          "Google Sign-In failed to initialize. Confirm Authorized JavaScript origins includes " +
           location.origin;
       }
     }
@@ -1231,14 +1266,14 @@
         return;
       }
       if (!authGate.hidden) {
-        const wrap = document.getElementById("google-btn-wrap");
-        const iframe = wrap && wrap.querySelector("iframe");
-        if (iframe) {
-          iframe.click();
+        const btn = document.getElementById("google-signin-btn");
+        if (btn && !btn.hidden) {
+          btn.click();
           return;
         }
-        const btn = document.getElementById("google-signin-btn");
-        if (btn && !btn.hidden) btn.click();
+        const wrap = document.getElementById("google-btn-wrap");
+        const iframe = wrap && wrap.querySelector("div[role='button'], iframe");
+        if (iframe) iframe.click();
         return;
       }
       showAuthGate(authConfigCache);
@@ -1249,31 +1284,17 @@
         alert("Google Sign-In is not configured.");
         return;
       }
+      if (googleCodeClient) {
+        googleCodeClient.requestCode();
+        return;
+      }
       if (!googleReady) {
         const ready = await waitForGis(8000);
         if (!ready || !window.google?.accounts?.id) {
           alert(
-            "Google Sign-In didn’t load. Check your network/ad-blocker, or add this origin in Google Cloud:\n" +
+            "Google Sign-In didn’t load. Check your network/ad-blocker, and confirm this origin is listed:\n" +
             location.origin
           );
-          return;
-        }
-        try {
-          window.google.accounts.id.initialize({
-            client_id: authConfigCache.google_client_id,
-            callback: async (response) => {
-              try {
-                await completeGoogleSignIn(response.credential);
-              } catch (e) {
-                alert(e.message || "Google sign-in failed.");
-              }
-            },
-            auto_select: false,
-            use_fedcm_for_prompt: true,
-          });
-          googleReady = true;
-        } catch (e) {
-          alert(e.message || "Google Sign-In failed to start.");
           return;
         }
       }
@@ -1282,8 +1303,8 @@
           const reason = notification.getNotDisplayedReason?.() || notification.getSkippedReason?.() || "blocked";
           alert(
             "Google Sign-In could not open (" + reason + ").\n\n" +
-            "In Google Cloud Console → Credentials → your OAuth Web client, add this exact origin:\n" +
-            location.origin + "\n\nto Authorized JavaScript origins, then save and hard-refresh."
+            "Add GOOGLE_CLIENT_SECRET on Render for popup sign-in, and keep this origin in Authorized JavaScript origins:\n" +
+            location.origin
           );
         }
       });

@@ -1,11 +1,15 @@
-# Auth — Google ID token + guest sessions (httpOnly cookie)
+# Auth — Google ID token / OAuth code + guest sessions (httpOnly cookie)
 
 from __future__ import annotations
 
+import json
 import os
+import urllib.error
+import urllib.parse
+import urllib.request
 from typing import Annotated
 
-from fastapi import Cookie, Depends, HTTPException, Request, Response
+from fastapi import Cookie, Depends, HTTPException, Response
 
 from database import (
     claim_guest_data,
@@ -21,6 +25,10 @@ SESSION_COOKIE = "genrag_session"
 
 def google_client_id() -> str:
     return (os.getenv("GOOGLE_CLIENT_ID") or "").strip()
+
+
+def google_client_secret() -> str:
+    return (os.getenv("GOOGLE_CLIENT_SECRET") or "").strip()
 
 
 def _cookie_secure() -> bool:
@@ -51,6 +59,51 @@ def start_guest_session(response: Response) -> dict:
     user, session_id = create_guest_session_bundle()
     _set_session_cookie(response, session_id)
     return _public_user(user)
+
+
+def exchange_google_auth_code(code: str) -> str:
+    """Exchange GIS popup auth code for an ID token (redirect_uri must be postmessage)."""
+    client_id = google_client_id()
+    client_secret = google_client_secret()
+    if not client_id or not client_secret:
+        raise HTTPException(
+            status_code=503,
+            detail="GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are required for Google sign-in.",
+        )
+    body = urllib.parse.urlencode(
+        {
+            "code": code,
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "redirect_uri": "postmessage",
+            "grant_type": "authorization_code",
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        "https://oauth2.googleapis.com/token",
+        data=body,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise HTTPException(
+            status_code=401,
+            detail=f"Google code exchange failed: {detail}",
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=401,
+            detail=f"Google code exchange failed: {exc}",
+        ) from exc
+
+    id_token = payload.get("id_token")
+    if not id_token:
+        raise HTTPException(status_code=401, detail="Google did not return an id_token.")
+    return id_token
 
 
 def start_google_session(
@@ -140,4 +193,5 @@ def auth_config() -> dict:
     return {
         "google_client_id": google_client_id(),
         "google_enabled": bool(google_client_id()),
+        "google_code_flow": bool(google_client_id() and google_client_secret()),
     }

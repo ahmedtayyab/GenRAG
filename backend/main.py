@@ -19,6 +19,7 @@ load_dotenv(ROOT_DIR / ".env")
 from auth import (  # noqa: E402
     SESSION_COOKIE,
     auth_config,
+    exchange_google_auth_code,
     get_optional_user,
     logout_session,
     require_user,
@@ -101,7 +102,9 @@ class ChatResponse(BaseModel):
 
 
 class GoogleAuthRequest(BaseModel):
-    credential: str = Field(..., min_length=10)
+    # GIS button / One Tap sends credential (JWT). Popup code flow sends code.
+    credential: str | None = Field(default=None, min_length=10)
+    code: str | None = Field(default=None, min_length=10)
     merge_guest: bool = True
 
 
@@ -156,9 +159,15 @@ def auth_guest(response: Response):
 @app.post("/auth/google")
 def auth_google(body: GoogleAuthRequest, request: Request, response: Response):
     guest_cookie = request.cookies.get(SESSION_COOKIE)
+    if body.code:
+        id_token = exchange_google_auth_code(body.code)
+    elif body.credential:
+        id_token = body.credential
+    else:
+        raise HTTPException(status_code=400, detail="Provide Google credential or code.")
     user = start_google_session(
         response,
-        id_token=body.credential,
+        id_token=id_token,
         merge_guest=body.merge_guest,
         guest_cookie=guest_cookie,
     )
